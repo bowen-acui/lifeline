@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-paper text-ink;
+}
+
+.minimal-input {
+  @apply bg-transparent border-b border-ink/20 py-2 px-0 focus:outline-none focus:border-accent transition-colors w-full font-mono text-lg rounded-none;
+}
+
+.btn-primary {
+  @apply bg-ink text-paper px-8 py-4 rounded-none transition-all font-mono text-xs uppercase tracking-[0.2em] border border-ink;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 1s ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
