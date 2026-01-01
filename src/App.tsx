@@ -23,6 +23,12 @@ const KeyValue = ({ label, value }: { label: string, value: string }) => (
   </div>
 );
 
+const MutagenBadge = ({ mutagen }: { mutagen: string }) => (
+  <span className="ml-1 px-1 py-0.5 bg-ink text-paper text-[10px] font-mono leading-none">
+    {mutagen}
+  </span>
+);
+
 // --- Mock Data Generator ---
 
 const generateLifePath = (seed: string, startAge: number = 0, endAge: number = 80) => {
@@ -54,16 +60,16 @@ const generateLifePath = (seed: string, startAge: number = 0, endAge: number = 8
 function App() {
   const [step, setStep] = useState<'input' | 'charts' | 'analysis'>('input');
   const [chartData, setChartData] = useState<BaseChartData | null>(null);
-  const [userData, setUserData] = useState<{ date: Date; place: string; name: string } | null>(null);
+  const [userData, setUserData] = useState<{ date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string } | null>(null);
   const [selectedCharts, setSelectedCharts] = useState<string[]>([]);
   const [lifePathData, setLifePathData] = useState<any[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
 
-  const handleFormSubmit = (data: { date: Date; place: string; name: string }) => {
+  const handleFormSubmit = (data: { date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string }) => {
     // 1. Generate Charts locally
     const coords = getCoordinates(data.place);
-    const charts = AstrologyEngine.generateBaseCharts(data.date, coords.lat, coords.lng);
+    const charts = AstrologyEngine.generateBaseCharts(data.date, coords.lat, coords.lng, data.gender);
     setChartData(charts);
     setUserData(data);
     setStep('charts');
@@ -82,7 +88,7 @@ function App() {
     setIsAnalyzing(true);
     
     // Use user data to seed the random generator for consistent "mock" results
-    const seed = `${userData.name}-${userData.date.toISOString()}-${userData.place}`;
+    const seed = `${userData.name}-${userData.gender}-${userData.date.toISOString()}-${userData.place}`;
     setLifePathData(generateLifePath(seed));
 
     try {
@@ -101,7 +107,14 @@ function App() {
         const data = await response.json();
         setAiAnalysis(data.analysis);
       } else {
-        console.error('Failed to fetch analysis');
+        let details = '';
+        try {
+          details = await response.text();
+        } catch {}
+        console.error('Failed to fetch analysis', {
+          status: response.status,
+          details,
+        });
         setAiAnalysis("（AI 分析服务暂时不可用，请检查网络或 API 配置。以下为基础命理数据生成的默认解读。）\n\n根据您的命盘，您拥有坚韧的性格特质。目前的星象显示您正处于一个积累能量的阶段。建议您保持耐心，关注内心的声音，在行动前深思熟虑。");
       }
     } catch (error) {
@@ -170,10 +183,10 @@ function App() {
                 className={`cursor-pointer transition-all duration-300 ${selectedCharts.includes('western') ? 'ring-2 ring-accent ring-offset-4 ring-offset-paper' : 'opacity-70 hover:opacity-100'}`}
               >
                 <DataCard title="02. 天体坐标 (Western)">
-                  <KeyValue label="太阳" value={chartData.western.sunSign} />
-                  <KeyValue label="月亮" value={chartData.western.moonSign} />
-                  {chartData.western.planets.slice(0, 3).map(p => (
-                     <KeyValue key={p.name} label={p.name.toUpperCase()} value={p.sign} />
+                  <KeyValue label="Sun 太阳" value={chartData.western.sunSign} />
+                  <KeyValue label="Moon 月亮" value={chartData.western.moonSign} />
+                  {chartData.western.planets.map(p => (
+                     <KeyValue key={p.name} label={p.name} value={p.sign} />
                   ))}
                 </DataCard>
               </div>
@@ -185,13 +198,34 @@ function App() {
                 className={`cursor-pointer transition-all duration-300 ${selectedCharts.includes('ziwei') ? 'ring-2 ring-accent ring-offset-4 ring-offset-paper' : 'opacity-70 hover:opacity-100'}`}
             >
               <DataCard title="03. 紫微斗数 (Ziwei)">
-                 <div className="flex items-center justify-between">
-                    <span className="text-lg">命宫: {chartData.ziwei.mingGong}</span>
-                    <div className="space-x-2">
-                      {chartData.ziwei.mainStars.map(star => (
-                        <span key={star} className="px-2 py-1 bg-ink text-paper text-xs font-mono">{star}</span>
-                      ))}
-                    </div>
+                 <div className="grid grid-cols-4 gap-2 text-xs">
+                    {chartData.ziwei.palaces?.map((palace) => (
+                      <div
+                        key={palace.name}
+                        className={`p-2 border ${palace.name === '命宫' ? 'border-ink bg-ink/5' : 'border-ink/10'} flex flex-col text-center`}
+                      >
+                        <div className="font-bold">{palace.name}</div>
+                        <div className="text-ink/50 text-[11px] font-mono">
+                          {palace.heavenlyStem}{palace.earthlyBranch}
+                        </div>
+                        <div className="mt-2 flex flex-wrap justify-center gap-1">
+                          {palace.stars.slice(0, 10).map((s) => (
+                            <span
+                              key={`${palace.name}-${s.name}-${s.mutagen ?? ''}`}
+                              className="px-1 py-0.5 border border-ink/10 font-mono text-[10px] text-ink/80"
+                            >
+                              {s.name}
+                              {s.mutagen ? <MutagenBadge mutagen={s.mutagen} /> : null}
+                            </span>
+                          ))}
+                        </div>
+                        {palace.stars.length > 10 ? (
+                          <div className="mt-2 text-[10px] font-mono text-ink/40">
+                            +{palace.stars.length - 10}...
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
                  </div>
               </DataCard>
             </div>

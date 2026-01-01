@@ -1,0 +1,152 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "diagnose-5174",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				"$ErrorActionPreference='Continue';\n'== Test-NetConnection ==';\ntry { Test-NetConnection -ComputerName 'localhost' -Port 5174 | Select-Object ComputerName,RemotePort,TcpTestSucceeded | Format-Table -AutoSize | Out-String } catch { $_.Exception.Message };\ntry { Test-NetConnection -ComputerName '127.0.0.1' -Port 5174 | Select-Object ComputerName,RemotePort,TcpTestSucceeded | Format-Table -AutoSize | Out-String } catch { $_.Exception.Message };\ntry { Test-NetConnection -ComputerName '::1' -Port 5174 | Select-Object ComputerName,RemotePort,TcpTestSucceeded | Format-Table -AutoSize | Out-String } catch { $_.Exception.Message };\n'== HTTP ==';\nforeach ($u in @('http://localhost:5174/','http://127.0.0.1:5174/','http://[::1]:5174/')) {\n  try {\n    $r = Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 3;\n    \"$u -> $($r.StatusCode)\";\n  } catch {\n    \"$u -> ERR: $($_.Exception.Message)\";\n  }\n}\n"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "diagnose-5174-ps1",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts\\diagnose-5174.ps1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "diagnose-5174-ps1",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts\\diagnose-5174.ps1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "diagnose-ports",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts\\diagnose-ports.ps1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "diagnose-ports",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts\\diagnose-ports.ps1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "inspect-listeners",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts\\inspect-listeners.ps1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "dev-server-5175-ipv4",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"dev",
+				"--",
+				"--host",
+				"127.0.0.1",
+				"--port",
+				"5175",
+				"--strictPort"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "diagnose-ports",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts\\diagnose-ports.ps1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "diagnose-ports",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts\\diagnose-ports.ps1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "vite-direct-5176",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"node_modules/vite/bin/vite.js",
+				"--host",
+				"::",
+				"--port",
+				"5176",
+				"--strictPort"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "diagnose-5176",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"scripts\\diagnose-5176.ps1"
+			],
+			"isBackground": false
+		}
+	]
+}

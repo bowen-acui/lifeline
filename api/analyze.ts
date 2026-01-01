@@ -1,11 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-  apiKey: process.env.DEEPSEEK_API_KEY,
-  baseURL: 'https://api.deepseek.com',
-});
-
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
@@ -20,12 +15,26 @@ export default async function handler(
     return res.status(400).json({ error: 'Missing required data' });
   }
 
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({
+      error: 'Missing server configuration: DEEPSEEK_API_KEY',
+    });
+  }
+
+  const openai = new OpenAI({
+    apiKey,
+    baseURL: 'https://api.deepseek.com',
+  });
+
   try {
     const prompt = `
       作为一个精通东西方命理的专家，请根据以下数据为用户生成一份简短、深刻且具有启发性的人生分析。
       
       用户基本信息:
       姓名: ${userData.name}
+      性别: ${userData.gender}
+      性取向: ${userData.orientation || '（未填写）'}
       出生日期: ${new Date(userData.date).toLocaleDateString()}
       出生地: ${userData.place}
 
@@ -53,8 +62,22 @@ export default async function handler(
     const analysis = completion.choices[0].message.content;
 
     return res.status(200).json({ analysis });
-  } catch (error) {
+  } catch (error: any) {
     console.error('DeepSeek API Error:', error);
-    return res.status(500).json({ error: 'Failed to generate analysis' });
+    const status = typeof error?.status === 'number' ? error.status : 500;
+    const message =
+      typeof error?.message === 'string' && error.message
+        ? error.message
+        : 'Failed to generate analysis';
+
+    return res.status(status).json({
+      error: message,
+      ...(process.env.NODE_ENV !== 'production'
+        ? {
+            hint:
+              'If running locally with Vite, /api/analyze will 404. Use `npx vercel dev` to run serverless functions.',
+          }
+        : null),
+    });
   }
 }

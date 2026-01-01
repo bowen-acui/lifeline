@@ -4,6 +4,7 @@ import {
   Body,
   GeoVector
 } from 'astronomy-engine';
+import { astro as ziweiAstro } from 'iztro';
 
 // --- Types ---
 
@@ -15,9 +16,16 @@ export interface BaziData {
   wuxing: string; // Simple string representation for now
 }
 
+export interface ZiweiPalace {
+  name: string;
+  heavenlyStem: string;
+  earthlyBranch: string;
+  stars: { name: string; mutagen?: string }[];
+}
+
 export interface ZiweiData {
   mingGong: string;
-  mainStars: string[]; 
+  palaces: ZiweiPalace[];
 }
 
 export interface WesternChartData {
@@ -35,15 +43,51 @@ export interface BaseChartData {
 
 // --- Helpers ---
 
-const ZODIAC_SIGNS = [
+const ZODIAC_SIGNS_EN = [
   'Aries', 'Taurus', 'Gemini', 'Cancer', 
   'Leo', 'Virgo', 'Libra', 'Scorpio', 
   'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces'
 ];
 
+const ZODIAC_SIGNS_CN = [
+  '白羊座', '金牛座', '双子座', '巨蟹座', 
+  '狮子座', '处女座', '天秤座', '天蝎座', 
+  '射手座', '摩羯座', '水瓶座', '双鱼座'
+];
+
+const PLANET_NAMES_CN: Record<string, string> = {
+  'Sun': '太阳',
+  'Moon': '月亮',
+  'Mercury': '水星',
+  'Venus': '金星',
+  'Mars': '火星',
+  'Jupiter': '木星',
+  'Saturn': '土星',
+  'Uranus': '天王星',
+  'Neptune': '海王星',
+  'Pluto': '冥王星'
+};
+
 function getZodiacSign(longitude: number): string {
   const index = Math.floor(longitude / 30) % 12;
-  return ZODIAC_SIGNS[index];
+  return `${ZODIAC_SIGNS_EN[index]} (${ZODIAC_SIGNS_CN[index]})`;
+}
+
+function getPlanetName(body: string): string {
+  return `${body} ${PLANET_NAMES_CN[body] || ''}`;
+}
+
+function toZiweiTimeIndex(date: Date): number {
+  // iztro uses timeIndex 0~11 for 子~亥, and 12 for late 子时 (23:00~23:59)
+  const hour = date.getHours();
+  return Math.floor((hour + 1) / 2);
+}
+
+function formatYMD(date: Date): string {
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  return `${y}-${m}-${d}`;
 }
 
 // --- Engine ---
@@ -55,9 +99,20 @@ export class AstrologyEngine {
    * @param date Date object
    * @param _lat Latitude (optional, default 39.9 Beijing) - Unused in MVP Geocentric
    * @param _lng Longitude (optional, default 116.4 Beijing) - Unused in MVP Geocentric
+   * @param gender Ziwei gender parameter (男/女). Default 女.
    */
-  static generateBaseCharts(date: Date, _lat: number = 39.9, _lng: number = 116.4): BaseChartData {
-    const solar = Solar.fromDate(date);
+  static generateBaseCharts(
+    date: Date,
+    _lat: number = 39.9,
+    _lng: number = 116.4,
+    gender: '男' | '女' = '女'
+  ): BaseChartData {
+    const y = date.getFullYear();
+    const m = date.getMonth() + 1;
+    const d = date.getDate();
+    const hh = date.getHours();
+    const mm = date.getMinutes();
+    const solar = Solar.fromYmdHms(y, m, d, hh, mm, 0);
     const lunar = solar.getLunar();
     const eightChar = lunar.getEightChar();
 
@@ -70,18 +125,28 @@ export class AstrologyEngine {
       wuxing: `${eightChar.getYearWuXing()} ${eightChar.getMonthWuXing()} ${eightChar.getDayWuXing()} ${eightChar.getTimeWuXing()}`
     };
 
-    // 2. Ziwei Doushu (Simplified for MVP)
-    // Note: Full Ziwei plotting is complex. For MVP we extract basic info if available 
-    // or use a simplified logic based on Lunar date/time.
-    // lunar-javascript has some EightChar logic but full Ziwei might need a dedicated plugin.
-    // Here we simulate the structure for the UI.
-    // In a real full implementation, we would calculate the Ming Gong position based on Lunar Month and Hour.
-    
-    const mingGong = eightChar.getMingGong();
-    
+    // 2. Ziwei Doushu (Real algorithm via iztro)
+    const ziweiTimeIndex = toZiweiTimeIndex(date);
+    const solarYmd = formatYMD(date);
+    const astrolabe = ziweiAstro.bySolar(solarYmd, ziweiTimeIndex, gender, true, 'zh-CN');
+
+    const palaces: ZiweiPalace[] = astrolabe.palaces.map((p) => {
+      const stars = [...p.majorStars, ...p.minorStars, ...p.adjectiveStars]
+        .map((s) => ({ name: s.name, mutagen: s.mutagen }))
+        // keep stable ordering: major first (already), then minor, then adjective.
+        .filter((s) => Boolean(s.name));
+
+      return {
+        name: p.name,
+        heavenlyStem: p.heavenlyStem,
+        earthlyBranch: p.earthlyBranch,
+        stars,
+      };
+    });
+
     const ziwei: ZiweiData = {
-      mingGong: mingGong, 
-      mainStars: ["紫微", "天府"] // Placeholder
+      mingGong: `${astrolabe.earthlyBranchOfSoulPalace}`,
+      palaces,
     };
 
     // 3. Western Astrology
@@ -111,7 +176,7 @@ export class AstrologyEngine {
         const vec = GeoVector(body, date, true);
         const ec = Ecliptic(vec);
         return {
-            name: body,
+            name: getPlanetName(body),
             sign: getZodiacSign(ec.elon),
             angle: Math.round(ec.elon * 100) / 100
         };
