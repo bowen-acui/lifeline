@@ -249,7 +249,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                 <div className="group">
                     <div className="flex items-end gap-4">
                         <div className="flex-1">
-                            <label htmlFor="gender" className="block text-xs font-mono text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">性别 (Gender) *</label>
+                            <label htmlFor="gender" className="block text-xs font-mono text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生性别 (Gender) *</label>
                             <select
                                 ref={genderRef}
                                 id="gender"
@@ -272,13 +272,12 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                                 onChange={(e) => setOrientation(e.target.value)}
                                 className="minimal-input w-full"
                             >
-                                <option value="">不填</option>
+                                <option value="">不填/不确定/不透露</option>
                                 <option value="异性恋">异性恋</option>
                                 <option value="同性恋">同性恋</option>
                                 <option value="双性恋">双性恋</option>
                                 <option value="泛性恋">泛性恋</option>
                                 <option value="无性恋">无性恋</option>
-                                <option value="不确定/不透露">不确定/不透露</option>
                             </select>
                         </div>
                     </div>

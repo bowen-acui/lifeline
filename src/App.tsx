@@ -154,25 +154,62 @@ function App() {
               >
                 <DataCard title="01. 四柱八字 (Bazi)">
                   <div className="grid grid-cols-4 gap-2 text-center mb-4">
-                    <div>
-                      <div className="text-xs text-ink/30 mb-1">年柱</div>
-                      <div className="text-xl font-bold">{chartData.bazi.year}</div>
+                    <div className="text-xs text-ink/30 mb-1">年柱</div>
+                    <div className="text-xs text-ink/30 mb-1">月柱</div>
+                    <div className="text-xs text-ink/30 mb-1">日柱</div>
+                    <div className="text-xs text-ink/30 mb-1">时柱</div>
+
+                    {/* Main Stars */}
+                    <div className="text-xs font-mono text-ink/60">{chartData.bazi.yearShiShen}</div>
+                    <div className="text-xs font-mono text-ink/60">{chartData.bazi.monthShiShen}</div>
+                    <div className="text-xs font-mono text-ink/60">{chartData.bazi.dayShiShen}</div>
+                    <div className="text-xs font-mono text-ink/60">{chartData.bazi.hourShiShen}</div>
+
+                    {/* Pillars */}
+                    <div className="text-xl font-bold">{chartData.bazi.year}</div>
+                    <div className="text-xl font-bold">{chartData.bazi.month}</div>
+                    <div className="text-xl font-bold">{chartData.bazi.day}</div>
+                    <div className="text-xl font-bold">{chartData.bazi.hour}</div>
+
+                    {/* Hidden Stems */}
+                    <div className="text-[10px] text-ink/40 space-y-1 flex flex-col items-center">
+                        {chartData.bazi.yearHideGan.map((g, i) => (
+                            <div key={i} className="flex gap-1"><span>{g}</span><span className="scale-90 opacity-70">{chartData.bazi.yearHideShiShen[i]}</span></div>
+                        ))}
                     </div>
-                    <div>
-                      <div className="text-xs text-ink/30 mb-1">月柱</div>
-                      <div className="text-xl font-bold">{chartData.bazi.month}</div>
+                    <div className="text-[10px] text-ink/40 space-y-1 flex flex-col items-center">
+                        {chartData.bazi.monthHideGan.map((g, i) => (
+                            <div key={i} className="flex gap-1"><span>{g}</span><span className="scale-90 opacity-70">{chartData.bazi.monthHideShiShen[i]}</span></div>
+                        ))}
                     </div>
-                    <div>
-                      <div className="text-xs text-ink/30 mb-1">日柱</div>
-                      <div className="text-xl font-bold">{chartData.bazi.day}</div>
+                    <div className="text-[10px] text-ink/40 space-y-1 flex flex-col items-center">
+                        {chartData.bazi.dayHideGan.map((g, i) => (
+                            <div key={i} className="flex gap-1"><span>{g}</span><span className="scale-90 opacity-70">{chartData.bazi.dayHideShiShen[i]}</span></div>
+                        ))}
                     </div>
-                    <div>
-                      <div className="text-xs text-ink/30 mb-1">时柱</div>
-                      <div className="text-xl font-bold">{chartData.bazi.hour}</div>
+                    <div className="text-[10px] text-ink/40 space-y-1 flex flex-col items-center">
+                        {chartData.bazi.hourHideGan.map((g, i) => (
+                            <div key={i} className="flex gap-1"><span>{g}</span><span className="scale-90 opacity-70">{chartData.bazi.hourHideShiShen[i]}</span></div>
+                        ))}
                     </div>
                   </div>
-                  <div className="text-xs font-mono text-ink/50 text-center border-t border-ink/5 pt-2">
+                  
+                  <div className="text-xs font-mono text-ink/50 text-center border-t border-ink/5 pt-2 mb-4">
                     {chartData.bazi.wuxing}
+                  </div>
+
+                  {/* Da Yun */}
+                  <div className="border-t border-ink/5 pt-2">
+                      <div className="text-[10px] text-ink/30 mb-2 uppercase tracking-widest text-center">大运 (Major Cycles)</div>
+                      <div className="grid grid-cols-8 gap-1">
+                          {chartData.bazi.daYun.map((dy) => (
+                              <div key={dy.startAge} className="text-center">
+                                  <div className="text-sm font-bold">{dy.ganZhi}</div>
+                                  <div className="text-[9px] text-ink/40">{dy.startAge}岁</div>
+                                  <div className="text-[9px] text-ink/30">{dy.startYear}</div>
+                              </div>
+                          ))}
+                      </div>
                   </div>
                 </DataCard>
               </div>

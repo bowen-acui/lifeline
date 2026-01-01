@@ -8,12 +8,50 @@ import { astro as ziweiAstro } from 'iztro';
 
 // --- Types ---
 
+export interface DaYunData {
+  startYear: number;
+  endYear: number;
+  startAge: number;
+  ganZhi: string;
+}
+
 export interface BaziData {
   year: string;
   month: string;
   day: string;
   hour: string;
-  wuxing: string; // Simple string representation for now
+  wuxing: string;
+  
+  // Detailed Pillars
+  yearGan: string;
+  yearZhi: string;
+  monthGan: string;
+  monthZhi: string;
+  dayGan: string;
+  dayZhi: string;
+  hourGan: string;
+  hourZhi: string;
+
+  // Main Stars (Ten Gods of Stems)
+  yearShiShen: string;
+  monthShiShen: string;
+  dayShiShen: string; // Day Master
+  hourShiShen: string;
+
+  // Hidden Stems
+  yearHideGan: string[];
+  monthHideGan: string[];
+  dayHideGan: string[];
+  hourHideGan: string[];
+
+  // Sub Stars (Ten Gods of Hidden Stems)
+  yearHideShiShen: string[];
+  monthHideShiShen: string[];
+  dayHideShiShen: string[];
+  hourHideShiShen: string[];
+
+  // Cycles
+  daYun: DaYunData[];
 }
 
 export interface ZiweiPalace {
@@ -68,6 +106,33 @@ const PLANET_NAMES_CN: Record<string, string> = {
   'Pluto': '冥王星'
 };
 
+const STEMS = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'];
+
+function calculateShiShen(dayMaster: string, target: string): string {
+  if (!dayMaster || !target) return '';
+  
+  const dmIdx = STEMS.indexOf(dayMaster);
+  const tIdx = STEMS.indexOf(target);
+  if (dmIdx === -1 || tIdx === -1) return '';
+
+  const dmEl = Math.floor(dmIdx / 2);
+  const tEl = Math.floor(tIdx / 2);
+  const dmPol = dmIdx % 2;
+  const tPol = tIdx % 2;
+  const samePol = dmPol === tPol;
+
+  // 0: Same, 1: Output, 2: Wealth, 3: Power, 4: Resource
+  const rel = (tEl - dmEl + 5) % 5;
+  
+  if (rel === 0) return samePol ? '比肩' : '劫财';
+  if (rel === 1) return samePol ? '食神' : '伤官';
+  if (rel === 2) return samePol ? '偏财' : '正财';
+  if (rel === 3) return samePol ? '七杀' : '正官';
+  if (rel === 4) return samePol ? '偏印' : '正印';
+  
+  return '';
+}
+
 function getZodiacSign(longitude: number): string {
   const index = Math.floor(longitude / 30) % 12;
   return `${ZODIAC_SIGNS_EN[index]} (${ZODIAC_SIGNS_CN[index]})`;
@@ -117,12 +182,56 @@ export class AstrologyEngine {
     const eightChar = lunar.getEightChar();
 
     // 1. Bazi (Eight Characters)
+    const dayMaster = eightChar.getDayGan();
+    
+    // Hidden Stems
+    const yearHideGan = eightChar.getYearHideGan();
+    const monthHideGan = eightChar.getMonthHideGan();
+    const dayHideGan = eightChar.getDayHideGan();
+    const hourHideGan = eightChar.getTimeHideGan();
+
+    // Da Yun
+    const yun = eightChar.getYun(gender === '男' ? 1 : 0);
+    const daYunList = yun.getDaYun();
+    const daYunData: DaYunData[] = daYunList.slice(0, 8).map(dy => ({
+        startYear: dy.getStartYear(),
+        endYear: dy.getEndYear(),
+        startAge: dy.getStartAge(),
+        ganZhi: dy.getGanZhi()
+    }));
+
     const bazi: BaziData = {
       year: eightChar.getYear(),
       month: eightChar.getMonth(),
       day: eightChar.getDay(),
       hour: eightChar.getTime(),
-      wuxing: `${eightChar.getYearWuXing()} ${eightChar.getMonthWuXing()} ${eightChar.getDayWuXing()} ${eightChar.getTimeWuXing()}`
+      wuxing: `${eightChar.getYearWuXing()} ${eightChar.getMonthWuXing()} ${eightChar.getDayWuXing()} ${eightChar.getTimeWuXing()}`,
+      
+      yearGan: eightChar.getYearGan(),
+      yearZhi: eightChar.getYearZhi(),
+      monthGan: eightChar.getMonthGan(),
+      monthZhi: eightChar.getMonthZhi(),
+      dayGan: eightChar.getDayGan(),
+      dayZhi: eightChar.getDayZhi(),
+      hourGan: eightChar.getTimeGan(),
+      hourZhi: eightChar.getTimeZhi(),
+
+      yearShiShen: calculateShiShen(dayMaster, eightChar.getYearGan()),
+      monthShiShen: calculateShiShen(dayMaster, eightChar.getMonthGan()),
+      dayShiShen: '日主',
+      hourShiShen: calculateShiShen(dayMaster, eightChar.getTimeGan()),
+
+      yearHideGan,
+      monthHideGan,
+      dayHideGan,
+      hourHideGan,
+
+      yearHideShiShen: yearHideGan.map(g => calculateShiShen(dayMaster, g)),
+      monthHideShiShen: monthHideGan.map(g => calculateShiShen(dayMaster, g)),
+      dayHideShiShen: dayHideGan.map(g => calculateShiShen(dayMaster, g)),
+      hourHideShiShen: hourHideGan.map(g => calculateShiShen(dayMaster, g)),
+
+      daYun: daYunData
     };
 
     // 2. Ziwei Doushu (Real algorithm via iztro)

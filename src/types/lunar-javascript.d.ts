@@ -21,5 +21,38 @@ declare module 'lunar-javascript' {
         getDayWuXing(): string;
         getTimeWuXing(): string;
         getMingGong(): string;
+
+        getYearGan(): string;
+        getYearZhi(): string;
+        getMonthGan(): string;
+        getMonthZhi(): string;
+        getDayGan(): string;
+        getDayZhi(): string;
+        getTimeGan(): string;
+        getTimeZhi(): string;
+
+        getYearHideGan(): string[];
+        getMonthHideGan(): string[];
+        getDayHideGan(): string[];
+        getTimeHideGan(): string[];
+
+        getYun(gender: number): Yun;
+    }
+
+    export class Yun {
+        getDaYun(): DaYun[];
+    }
+
+    export class DaYun {
+        getStartYear(): number;
+        getEndYear(): number;
+        getStartAge(): number;
+        getGanZhi(): string;
+        getLiuNian(): LiuNian[];
+    }
+
+    export class LiuNian {
+        getYear(): number;
+        getGanZhi(): string;
     }
 }
