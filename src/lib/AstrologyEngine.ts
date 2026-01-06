@@ -52,6 +52,16 @@ export interface BaziData {
 
   // Cycles
   daYun: DaYunData[];
+
+  // Wu Xing Statistics
+  wuxingCount: { [key: string]: number };
+  dayMasterElement: string;
+  naYin: {
+    year: string;
+    month: string;
+    day: string;
+    hour: string;
+  };
 }
 
 export interface ZiweiPalace {
@@ -71,6 +81,10 @@ export interface WesternChartData {
   moonSign: string;
   ascendant: string;
   planets: { name: string; sign: string; angle: number }[];
+  sunAngle: number;
+  moonAngle: number;
+  sunElement: string;
+  moonElement: string;
 }
 
 export interface BaseChartData {
@@ -107,6 +121,39 @@ const PLANET_NAMES_CN: Record<string, string> = {
 };
 
 const STEMS = ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'];
+
+const STEM_ELEMENTS: Record<string, string> = {
+  '甲': '木', '乙': '木',
+  '丙': '火', '丁': '火',
+  '戊': '土', '己': '土',
+  '庚': '金', '辛': '金',
+  '壬': '水', '癸': '水'
+};
+
+const ZODIAC_ELEMENTS: Record<string, string> = {
+  'Aries': '火', 'Leo': '火', 'Sagittarius': '火',
+  'Taurus': '土', 'Virgo': '土', 'Capricorn': '土',
+  'Gemini': '风', 'Libra': '风', 'Aquarius': '风',
+  'Cancer': '水', 'Scorpio': '水', 'Pisces': '水'
+};
+
+function getZodiacElement(signStr: string): string {
+  for (const [sign, element] of Object.entries(ZODIAC_ELEMENTS)) {
+    if (signStr.includes(sign)) return element;
+  }
+  return '';
+}
+
+function calculateWuxingCount(eightChar: any): { [key: string]: number } {
+  const wuxingStr = `${eightChar.getYearWuXing()} ${eightChar.getMonthWuXing()} ${eightChar.getDayWuXing()} ${eightChar.getTimeWuXing()}`;
+  const count: { [key: string]: number } = { '木': 0, '火': 0, '土': 0, '金': 0, '水': 0 };
+  for (const char of wuxingStr) {
+    if (count[char] !== undefined) {
+      count[char]++;
+    }
+  }
+  return count;
+}
 
 function calculateShiShen(dayMaster: string, target: string): string {
   if (!dayMaster || !target) return '';
@@ -231,7 +278,17 @@ export class AstrologyEngine {
       dayHideShiShen: dayHideGan.map(g => calculateShiShen(dayMaster, g)),
       hourHideShiShen: hourHideGan.map(g => calculateShiShen(dayMaster, g)),
 
-      daYun: daYunData
+      daYun: daYunData,
+
+      // Wu Xing Statistics
+      wuxingCount: calculateWuxingCount(eightChar),
+      dayMasterElement: STEM_ELEMENTS[dayMaster] || '',
+      naYin: {
+        year: eightChar.getYearNaYin(),
+        month: eightChar.getMonthNaYin(),
+        day: eightChar.getDayNaYin(),
+        hour: eightChar.getTimeNaYin()
+      }
     };
 
     // 2. Ziwei Doushu (Real algorithm via iztro)
@@ -299,7 +356,11 @@ export class AstrologyEngine {
       sunSign,
       moonSign,
       ascendant: "Calculating...", // To be implemented with precise sidereal time
-      planets
+      planets,
+      sunAngle: Math.round(sunEcliptic.elon * 100) / 100,
+      moonAngle: Math.round(moonEcliptic.elon * 100) / 100,
+      sunElement: getZodiacElement(sunSign),
+      moonElement: getZodiacElement(moonSign)
     };
 
     return {

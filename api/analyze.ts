@@ -9,27 +9,36 @@ export default async function handler(
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { userData, chartData } = req.body;
+  const { userData, chartData, systemPrompt, userPrompt, model, apiKey: userApiKey } = req.body;
 
   if (!userData || !chartData) {
     return res.status(400).json({ error: 'Missing required data' });
   }
 
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  // 优先使用用户提供的 API Key，否则使用环境变量
+  const isDeepSeek = model === 'deepseek';
+  const envKey = isDeepSeek ? process.env.DEEPSEEK_API_KEY : process.env.OPENAI_API_KEY;
+  const apiKey = userApiKey || envKey;
+  
   if (!apiKey) {
     return res.status(500).json({
-      error: 'Missing server configuration: DEEPSEEK_API_KEY',
+      error: `Missing API key for ${model}. Please provide your own API key or contact administrator.`,
     });
   }
 
+  // 根据模型选择配置
   const openai = new OpenAI({
     apiKey,
-    baseURL: 'https://api.deepseek.com',
+    baseURL: isDeepSeek ? 'https://api.deepseek.com' : 'https://api.openai.com/v1',
   });
 
+  const modelName = isDeepSeek ? 'deepseek-chat' : 'gpt-4o-mini';
+
   try {
-    const prompt = `
-      作为一个精通东西方命理的专家，请根据以下数据为用户生成一份简短、深刻且具有启发性的人生分析。
+    // 使用前端传入的 prompt，如果没有则使用默认 prompt
+    const finalSystemPrompt = systemPrompt || `你是一位精通中西方命理学的资深分析师。`;
+    const finalUserPrompt = userPrompt || `
+      请根据以下数据为用户生成一份深刻且具有启发性的人生分析。
       
       用户基本信息:
       姓名: ${userData.name}
@@ -43,32 +52,37 @@ export default async function handler(
       紫微斗数: ${JSON.stringify(chartData.ziwei)}
       西方星盘: ${JSON.stringify(chartData.western)}
 
-      请提供以下内容:
-      1. 核心性格特质 (结合八字日主与西方太阳/月亮星座)
-      2. 人生主要挑战与机遇 (结合紫微命宫与星盘相位)
-      3. 给用户的简短建议 (不超过3条)
-
-      风格要求:
-      - 语言风格: 极简、富有哲理、神秘但不迷信。
-      - 避免过于专业的术语堆砌，用通俗易懂的语言解释。
-      - 总字数控制在 300 字以内。
+      请提供详尽的分析。
     `;
 
     const completion = await openai.chat.completions.create({
-      messages: [{ role: 'user', content: prompt }],
-      model: 'deepseek-chat',
+      messages: [
+        { role: 'system', content: finalSystemPrompt },
+        { role: 'user', content: finalUserPrompt }
+      ],
+      model: modelName,
+      temperature: 0.7,
+      max_tokens: 4000,
     });
 
     const analysis = completion.choices[0].message.content;
 
     return res.status(200).json({ analysis });
   } catch (error: any) {
-    console.error('DeepSeek API Error:', error);
+    console.error(`${model} API Error:`, error);
     const status = typeof error?.status === 'number' ? error.status : 500;
-    const message =
-      typeof error?.message === 'string' && error.message
-        ? error.message
-        : 'Failed to generate analysis';
+    let message = 'Failed to generate analysis';
+    
+    // 处理常见错误
+    if (error?.code === 'invalid_api_key' || error?.status === 401) {
+      message = 'API Key 无效，请检查后重试';
+    } else if (error?.status === 429) {
+      message = 'API 调用频率超限，请稍后重试';
+    } else if (error?.status === 402) {
+      message = 'API 账户余额不足';
+    } else if (typeof error?.message === 'string' && error.message) {
+      message = error.message;
+    }
 
     return res.status(status).json({
       error: message,

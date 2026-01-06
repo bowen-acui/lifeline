@@ -36,6 +36,11 @@ declare module 'lunar-javascript' {
         getDayHideGan(): string[];
         getTimeHideGan(): string[];
 
+        getYearNaYin(): string;
+        getMonthNaYin(): string;
+        getDayNaYin(): string;
+        getTimeNaYin(): string;
+
         getYun(gender: number): Yun;
     }
 

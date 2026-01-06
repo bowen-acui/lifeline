@@ -146,7 +146,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
         <form onSubmit={handleSubmit} className="space-y-12 py-8">
             <div className="space-y-8">
                 <div className="group">
-                    <label className="block text-xs font-mono text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生时间 (Time of Origin)</label>
+                    <label className="block text-xs font-serif text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生时间 (Time of Origin)</label>
                     <div className="flex flex-wrap gap-2 items-center">
                         <input
                             ref={yearRef}
@@ -201,7 +201,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                 </div>
                 
                 <div className="group">
-                    <label htmlFor="birthPlace" className="block text-xs font-mono text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生地点 (Coordinates)</label>
+                    <label htmlFor="birthPlace" className="block text-xs font-serif text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生地点 (Coordinates)</label>
                     <div className="flex gap-4">
                         <select 
                             ref={countryRef}
@@ -249,7 +249,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                 <div className="group">
                     <div className="flex items-end gap-4">
                         <div className="flex-1">
-                            <label htmlFor="gender" className="block text-xs font-mono text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生性别 (Gender) *</label>
+                            <label htmlFor="gender" className="block text-xs font-serif text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生性别 (Gender) *</label>
                             <select
                                 ref={genderRef}
                                 id="gender"
@@ -265,7 +265,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                         </div>
 
                         <div className="flex-1">
-                            <label htmlFor="orientation" className="block text-xs font-mono text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">性取向 (Orientation - Optional)</label>
+                            <label htmlFor="orientation" className="block text-xs font-serif text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">性取向 (Orientation - Optional)</label>
                             <select
                                 id="orientation"
                                 value={orientation}
@@ -284,7 +284,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                 </div>
 
                 <div className="group">
-                    <label htmlFor="name" className="block text-xs font-mono text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">姓名 (Identity - Optional)</label>
+                    <label htmlFor="name" className="block text-xs font-serif text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">姓名 (Identity - Optional)</label>
                     <input
                         type="text"
                         id="name"
