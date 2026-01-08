@@ -4,7 +4,6 @@ import remarkGfm from 'remark-gfm';
 import MinimalForm from './components/MinimalForm';
 import { AstrologyEngine, BaseChartData } from './lib/AstrologyEngine';
 import { KeyYear } from './components/DualLineChart';
-import KeyYearsChart, { YearScore } from './components/KeyYearsChart';
 import { prepareAIAnalysisContext } from './lib/ScoreGenerator';
 import { generatePreviewAnalysis } from './lib/PreviewAnalysisService';
 import { getCoordinates } from './lib/CityLookup';
@@ -12,10 +11,7 @@ import { buildAnalysisPrompt, validateActivationCode, validateApiKey } from './l
 import { callAIService } from './lib/AIService';
 import { 
   getAnalysisHistory, 
-  saveAnalysis, 
-  deleteAnalysis, 
-  formatTimestamp, 
-  getAnalysisSummary,
+  formatTimestamp,
   type AnalysisHistoryItem 
 } from './lib/HistoryStorage';
 
@@ -31,13 +27,46 @@ const DataCard = ({ title, children, className = "" }: { title: string, children
 );
 
 // Description panel component for selected cards - positioned absolutely on desktop
-const DescriptionPanel = ({ description, visible }: { description: string, visible: boolean }) => (
-  <div className={`transition-all duration-300 ${visible ? 'opacity-100' : 'opacity-0 pointer-events-none'} md:absolute md:left-full md:top-0 md:ml-4 md:w-48`}>
-    <div className="text-xs text-ink/50 border-l-2 border-accent/30 pl-3 italic leading-relaxed">
-      {description}
+const DescriptionPanel = ({ 
+  description, 
+  visible, 
+  copyLabel, 
+  onCopy 
+}: { 
+  description: string, 
+  visible: boolean,
+  copyLabel?: string,
+  onCopy?: () => void
+}) => {
+  const [copied, setCopied] = React.useState(false);
+
+  const handleCopy = () => {
+    if (onCopy) {
+      onCopy();
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <div className={`transition-all duration-300 ${visible ? 'opacity-100' : 'opacity-0 pointer-events-none'} md:absolute md:left-full md:top-0 md:ml-4 md:w-48`}>
+      <div className="text-xs text-ink/50 border-l-2 border-accent/30 pl-3 italic leading-relaxed">
+        {description}
+      </div>
+      {copyLabel && onCopy && visible && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleCopy();
+          }}
+          className="mt-3 ml-3 px-3 py-1.5 text-[11px] font-mono border border-ink/20 hover:border-accent hover:text-accent transition-colors bg-paper"
+        >
+          {copied ? '已复制 ✓' : `复制${copyLabel}信息`}
+        </button>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 const MutagenBadge = ({ mutagen }: { mutagen: string }) => (
   <span className="ml-1 px-1 py-0.5 bg-ink text-paper text-[10px] font-mono leading-none">
@@ -46,18 +75,16 @@ const MutagenBadge = ({ mutagen }: { mutagen: string }) => (
 );
 
 function App() {
-  const [step, setStep] = useState<'input' | 'charts' | 'analysis'>('input');
+  const [step, setStep] = useState<'input' | 'charts'>('input');
   const [chartData, setChartData] = useState<BaseChartData | null>(null);
   const [userData, setUserData] = useState<{ date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string } | null>(null);
   const [selectedCharts, setSelectedCharts] = useState<string[]>([]);
+  // @ts-expect-error - Used in performAIAnalysis via result.keyYears
   const [keyYears, setKeyYears] = useState<KeyYear[]>([]);
-  const [fullYearScores, setFullYearScores] = useState<YearScore[]>([]);
-  const [isChartUnlocked, setIsChartUnlocked] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [aiModel, setAiModel] = useState<'deepseek' | 'chatgpt'>('deepseek');
-  const [showAiPanel, setShowAiPanel] = useState(false);
   const [authMode, setAuthMode] = useState<'activation' | 'apikey'>('activation');
   const [activationCode, setActivationCode] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -66,6 +93,13 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [historyList, setHistoryList] = useState<AnalysisHistoryItem[]>([]);
   const [viewingHistoryItem, setViewingHistoryItem] = useState<AnalysisHistoryItem | null>(null);
+
+  // 第二页新增选项
+  const [showExpandedOptions, setShowExpandedOptions] = useState(false);
+  const [selectedInfoSources, setSelectedInfoSources] = useState<string[]>([]);
+  const [selectedAspects, setSelectedAspects] = useState<string[]>([]);
+  const [selectedYear, setSelectedYear] = useState('seven');
+  const [showAnalysisReport, setShowAnalysisReport] = useState(false);
 
   // 加载历史记录
   useEffect(() => {
@@ -83,14 +117,71 @@ function App() {
 
   const toggleChartSelection = (chart: string) => {
     if (selectedCharts.includes(chart)) {
+      // 取消选中上面的卡片，同时取消选中下面的按钮
       setSelectedCharts(selectedCharts.filter(c => c !== chart));
+      setSelectedInfoSources(selectedInfoSources.filter(s => s !== chart));
     } else {
+      // 选中上面的卡片，同时选中下面的按钮
       setSelectedCharts([...selectedCharts, chart]);
+      setSelectedInfoSources([...selectedInfoSources, chart]);
     }
   };
 
+  // 复制数据到剪贴板的辅助函数
+  const copyBaziInfo = () => {
+    if (!chartData) return;
+    const bazi = chartData.bazi;
+    const text = `【八字信息】
+四柱：${bazi.year} ${bazi.month} ${bazi.day} ${bazi.hour}
+日主：${bazi.dayGan}
+五行：${bazi.wuxing}
+五行分布：金${bazi.wuxingCount['金'] || 0} 木${bazi.wuxingCount['木'] || 0} 水${bazi.wuxingCount['水'] || 0} 火${bazi.wuxingCount['火'] || 0} 土${bazi.wuxingCount['土'] || 0}
+纳音：年柱${bazi.naYin.year}、月柱${bazi.naYin.month}、日柱${bazi.naYin.day}、时柱${bazi.naYin.hour}
+大运：${bazi.daYun.map(dy => `${dy.ganZhi}(${dy.startAge}岁)`).join('、')}`;
+    navigator.clipboard.writeText(text);
+  };
+
+  const copyWesternInfo = () => {
+    if (!chartData) return;
+    const western = chartData.western;
+    const text = `【西方占星信息】
+太阳星座：${western.sunSign} (${western.sunAngle}°, 元素: ${western.sunElement})
+月亮星座：${western.moonSign} (${western.moonAngle}°, 元素: ${western.moonElement})
+行星位置：
+${western.planets.map(p => `  ${p.name}：${p.sign} (${p.angle}°)`).join('\n')}`;
+    navigator.clipboard.writeText(text);
+  };
+
+  const copyZiweiInfo = () => {
+    if (!chartData) return;
+    const ziwei = chartData.ziwei;
+    const text = `【紫微斗数信息】
+命宫：${ziwei.mingGong}
+十二宫位：
+${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：${p.stars.map(s => s.name + (s.mutagen ? `[${s.mutagen}]` : '')).join('、')}`).join('\n') || ''}`;
+    navigator.clipboard.writeText(text);
+  };
+
   const startAnalysis = async () => {
+    // 第二页点击"启动命运分析"按钮时，展开更多选项
+    // 初始化选择为用户选中的卡片
+    setSelectedInfoSources([...selectedCharts]);
+    setSelectedAspects([]);
+    setSelectedYear('seven');
+    setShowExpandedOptions(true);
+    setShowAnalysisReport(false);
+    setAiAnalysis(null);
+    setAuthError(null);
+    setIsAuthenticated(false);
+  };
+
+  const performAIAnalysis = async () => {
     if (!userData || !chartData) return;
+    if (!isAuthenticated) {
+      setAuthError('请先完成身份验证');
+      return;
+    }
+    
     setIsAnalyzing(true);
     setPreviewError(null);
     
@@ -116,7 +207,7 @@ function App() {
     
     const ziweiData = chartData.ziwei ? {
       mingGong: chartData.ziwei.mingGong,
-      shenGong: chartData.ziwei.mingGong, // 使用命宫作为替代
+      shenGong: chartData.ziwei.mingGong,
       majorStars: chartData.ziwei.palaces
         .filter(p => p.name === '命宫')
         .flatMap(p => p.stars.map(s => s.name))
@@ -127,22 +218,37 @@ function App() {
     const result = await generatePreviewAnalysis({
       birthYear,
       currentAge,
-      selectedSystems: selectedCharts as ('bazi' | 'western' | 'ziwei')[],
-      baziData: selectedCharts.includes('bazi') ? baziData : undefined,
-      westernData: selectedCharts.includes('western') ? westernData : undefined,
-      ziweiData: selectedCharts.includes('ziwei') ? ziweiData : undefined,
+      selectedSystems: selectedInfoSources as ('bazi' | 'western' | 'ziwei')[],
+      baziData: selectedInfoSources.includes('bazi') ? baziData : undefined,
+      westernData: selectedInfoSources.includes('western') ? westernData : undefined,
+      ziweiData: selectedInfoSources.includes('ziwei') ? ziweiData : undefined,
     });
     
     if (result.success && result.keyYears) {
       setKeyYears(result.keyYears);
-      setStep('analysis');
+      
+      // 调用AI深度分析
+      const context = prepareAIAnalysisContext(result.keyYears, selectedInfoSources, undefined);
+      const { systemPrompt, userPrompt } = buildAnalysisPrompt(context, aiModel, undefined);
+
+      const analysisResult = await callAIService({
+        systemPrompt,
+        userPrompt,
+        model: aiModel,
+        apiKey: authMode === 'apikey' ? apiKey : undefined,
+        userData,
+        chartData,
+      });
+
+      if (analysisResult.success && analysisResult.analysis) {
+        setAiAnalysis(analysisResult.analysis);
+        setShowAnalysisReport(true);
+      } else {
+        setPreviewError('AI分析失败，请重试');
+      }
     } else {
       setPreviewError(result.error || '生成失败，请重试');
     }
-    
-    // Reset AI analysis state
-    setAiAnalysis(null);
-    setShowAiPanel(false);
 
     setIsAnalyzing(false);
   };
@@ -167,101 +273,15 @@ function App() {
     }
   };
 
-  const requestAiAnalysis = async (targetYear?: number) => {
-    if (!userData || !chartData) return;
-    if (!isAuthenticated) {
-      setAuthError('请先输入激活码或 API Key');
-      return;
-    }
-    
-    setIsAnalyzing(true);
-    setAuthError(null);
-    setAiAnalysis(null);
-    
-    const context = prepareAIAnalysisContext(keyYears, selectedCharts, targetYear);
-    const { systemPrompt, userPrompt } = buildAnalysisPrompt(context, aiModel, targetYear);
-
-    // 使用新的 AI 服务（支持前端直连）
-    const result = await callAIService({
-      systemPrompt,
-      userPrompt,
-      model: aiModel,
-      apiKey: authMode === 'apikey' ? apiKey : undefined,
-      userData,
-      chartData,
-    });
-
-    if (result.success && result.analysis) {
-      setAiAnalysis(result.analysis);
-      
-      // 解锁图表并生成完整年度数据
-      setIsChartUnlocked(true);
-      generateFullYearScores();
-      
-      // 生成完整年度数据用于保存
-      const birthYear = userData.date.getFullYear();
-      const currentAge = new Date().getFullYear() - birthYear;
-      const minAge = Math.max(0, currentAge - 10);
-      const maxAge = currentAge + 30;
-      
-      const scoresForSave: YearScore[] = [];
-      for (let age = minAge; age <= maxAge; age++) {
-        const year = birthYear + age;
-        const keyYear = keyYears.find(k => k.age === age);
-        if (keyYear) {
-          scoresForSave.push({ year, age, career: keyYear.score.career, relationship: keyYear.score.relationship });
-        } else {
-          const sortedKeys = [...keyYears].sort((a, b) => a.age - b.age);
-          let career = 50, relationship = 50;
-          const before = sortedKeys.filter(k => k.age < age).pop();
-          const after = sortedKeys.find(k => k.age > age);
-          if (before && after) {
-            const t = (age - before.age) / (after.age - before.age);
-            career = Math.round(before.score.career + (after.score.career - before.score.career) * t);
-            relationship = Math.round(before.score.relationship + (after.score.relationship - before.score.relationship) * t);
-          } else if (before) {
-            career = before.score.career; relationship = before.score.relationship;
-          } else if (after) {
-            career = after.score.career; relationship = after.score.relationship;
-          }
-          scoresForSave.push({ year, age, career, relationship });
-        }
-      }
-
-      // 保存到历史记录
-      const savedItem = saveAnalysis({
-        userData: {
-          name: userData.name,
-          gender: userData.gender,
-          date: userData.date.toISOString(),
-          place: userData.place,
-        },
-        selectedSystems: selectedCharts,
-        analysisType: targetYear ? 'year' : 'overall',
-        targetYear,
-        model: aiModel,
-        analysis: result.analysis,
-        keyYears: keyYears.map(k => ({
-          year: k.year,
-          age: k.age,
-          type: k.type,
-          dimension: k.dimension,
-          score: k.score,
-          summary: k.summary,
-        })),
-        fullYearScores: scoresForSave,
-      });
-      
-      // 更新历史列表
-      setHistoryList(prev => [savedItem, ...prev].slice(0, 50));
-    } else {
-      setAiAnalysis(`（${result.error || 'AI 分析服务暂时不可用'}）\n\n请检查 API Key 是否正确，或稍后重试。`);
-    }
-    
-    setIsAnalyzing(false);
+  // @ts-expect-error - Stub function for backwards compatibility
+  const requestAiAnalysis = async () => {
+    // This function was for the old page 3 flow and is no longer used
+    // Keeping stub for backwards compatibility
   };
 
   // 生成完整年度分数（基于关键年份插值）
+  // 注：此函数在新的流程中不再使用
+  /*
   const generateFullYearScores = () => {
     if (!userData || keyYears.length === 0) return;
     
@@ -325,6 +345,7 @@ function App() {
     
     setFullYearScores(scores);
   };
+  */
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 max-w-6xl mx-auto bg-paper text-ink selection:bg-accent selection:text-white">
@@ -371,23 +392,10 @@ function App() {
                   ← 返回列表
                 </button>
                 <div className="mb-6">
-                  <h3 className="font-serif font-bold text-lg">{getAnalysisSummary(viewingHistoryItem)}</h3>
+                  <h3 className="font-serif font-bold text-lg">{viewingHistoryItem.userData.name} - {viewingHistoryItem.userData.gender}</h3>
                   <p className="text-xs text-ink/40 font-mono mt-1">{formatTimestamp(viewingHistoryItem.timestamp)}</p>
                 </div>
-                
-                {/* 趋势图 */}
-                {viewingHistoryItem.keyYears && viewingHistoryItem.keyYears.length > 0 && (
-                  <div className="mb-8">
-                    <KeyYearsChart
-                      keyYears={viewingHistoryItem.keyYears as KeyYear[]}
-                      birthYear={new Date(viewingHistoryItem.userData.date).getFullYear()}
-                      currentAge={new Date().getFullYear() - new Date(viewingHistoryItem.userData.date).getFullYear()}
-                      fullData={viewingHistoryItem.fullYearScores}
-                      isUnlocked={true}
-                    />
-                  </div>
-                )}
-                
+                                
                 <div className="prose prose-base max-w-none 
                   prose-headings:font-serif prose-headings:text-ink prose-headings:font-bold
                   prose-h2:text-xl prose-h2:mt-8 prose-h2:mb-4 prose-h2:border-b prose-h2:border-ink/10 prose-h2:pb-2
@@ -413,21 +421,9 @@ function App() {
                         onClick={() => setViewingHistoryItem(item)}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="font-serif text-sm truncate">{getAnalysisSummary(item)}</p>
+                          <p className="font-serif text-sm truncate">{item.userData.name} - {item.userData.gender}</p>
                           <p className="text-xs text-ink/40 font-mono">{formatTimestamp(item.timestamp)}</p>
                         </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (confirm('确定要删除这条记录吗？')) {
-                              deleteAnalysis(item.id);
-                              setHistoryList(prev => prev.filter(h => h.id !== item.id));
-                            }
-                          }}
-                          className="ml-4 text-ink/20 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          🗑
-                        </button>
                       </div>
                     ))}
                   </div>
@@ -543,6 +539,8 @@ function App() {
                 <DescriptionPanel 
                   description="八字命理学基于出生年月日时的天干地支组合，通过分析日主与其他干支的生克关系（十神），推演人生运势与性格特质。算法采用万年历计算真太阳时，结合节气换月规则。"
                   visible={selectedCharts.includes('bazi')}
+                  copyLabel="八字"
+                  onCopy={copyBaziInfo}
                 />
               </div>
 
@@ -590,6 +588,8 @@ function App() {
                 <DescriptionPanel 
                   description="西方占星术基于出生时刻地球视角下太阳、月亮及行星在黄道十二宫的位置。太阳星座反映核心自我，月亮星座代表情感本能。算法使用天文引擎计算精确的黄道经度。"
                   visible={selectedCharts.includes('western')}
+                  copyLabel="天体"
+                  onCopy={copyWesternInfo}
                 />
               </div>
 
@@ -634,285 +634,287 @@ function App() {
                 <DescriptionPanel 
                   description="紫微斗数是中国古代帝王级命理术，以紫微星为主导，配合108颗虚拟星曜布局十二宫位。四化(禄权科忌)揭示能量流转，命宫定性格本质。算法基于农历生辰排盘，结合五行局数定命主。"
                   visible={selectedCharts.includes('ziwei')}
+                  copyLabel="紫微"
+                  onCopy={copyZiweiInfo}
                 />
               </div>
             </div>
 
-            <div className="flex flex-col items-center pt-8 gap-4">
-              <button 
-                onClick={startAnalysis}
-                disabled={selectedCharts.length === 0 || isAnalyzing}
-                className="btn-primary group relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <span className="relative z-10">
-                  {isAnalyzing ? '正在AI分析命理数据...' : '启动命运分析'}
-                </span>
-                <div className="absolute inset-0 bg-accent transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-300 ease-out -z-0"></div>
-              </button>
-              {/* 错误提示 */}
-              {previewError && (
-                <p className="text-xs text-red-500 font-mono">{previewError}</p>
-              )}
-            </div>
-          </div>
-        )}
+            {/* 启动分析按钮 - 仅在未展开时显示 */}
+            {!showExpandedOptions && (
+              <div className="flex flex-col items-center pt-8 gap-4">
+                <button
+                  onClick={startAnalysis}
+                  disabled={selectedCharts.length === 0 || isAnalyzing}
+                  className="btn-primary group relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="relative z-10">
+                    启动命运分析
+                  </span>
+                  <div className="absolute inset-0 bg-accent transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-300 ease-out -z-0"></div>
+                </button>
+                {/* 错误提示 */}
+                {previewError && (
+                  <p className="text-xs text-red-500 font-mono">{previewError}</p>
+                )}
+              </div>
+            )}
 
-        {step === 'analysis' && (
-           <div className="animate-slide-up w-full">
-             {/* 概览区 */}
-             <div className="mb-8 text-center">
-                <h2 className="text-2xl font-serif font-bold mb-2">人生轨迹分析</h2>
-                <p className="text-xs font-serif uppercase tracking-widest text-ink/40 mb-4">Life Path Analysis</p>
-                
-                {/* 已选体系标签 */}
-                <div className="flex justify-center gap-2 mb-2">
-                  {selectedCharts.map(chart => (
-                    <span key={chart} className="px-3 py-1 border border-ink/20 text-xs font-mono text-ink/60">
-                      {chart === 'bazi' ? '八字' : chart === 'western' ? '占星' : '紫薇'}
-                    </span>
-                  ))}
+            {/* 展开的选项面板 */}
+            {showExpandedOptions && (
+              <div className="mt-8 space-y-6 animate-slide-up">
+                {/* 1. 选择信息源 */}
+                <div className="border border-accent/30 p-6 bg-accent/5">
+                  <h3 className="text-sm font-serif font-bold mb-4">1. 选择信息源</h3>
+                  <p className="text-xs text-ink/40 font-mono mb-3">与上方卡片选择一一对应，允许多选</p>
+                  <div className="flex flex-wrap gap-3">
+                    {[
+                      { id: 'bazi', label: '生辰八字' },
+                      { id: 'western', label: '天体星座' },
+                      { id: 'ziwei', label: '紫微斗数' }
+                    ].map(source => (
+                      <button
+                        key={source.id}
+                        onClick={() => {
+                          // 双向关联：点击下面的按钮时，上面的卡片也会被选中/取消
+                          if (selectedInfoSources.includes(source.id)) {
+                            // 已选中，取消选中
+                            setSelectedInfoSources(selectedInfoSources.filter(s => s !== source.id));
+                            setSelectedCharts(selectedCharts.filter(c => c !== source.id));
+                          } else {
+                            // 未选中，选中
+                            setSelectedInfoSources([...selectedInfoSources, source.id]);
+                            if (!selectedCharts.includes(source.id)) {
+                              setSelectedCharts([...selectedCharts, source.id]);
+                            }
+                          }
+                        }}
+                        className={`px-4 py-2 text-xs font-mono transition-all ${
+                          selectedInfoSources.includes(source.id)
+                            ? 'border-2 border-accent bg-accent text-white'
+                            : 'border border-ink/20 text-ink/60 hover:border-accent'
+                        }`}
+                      >
+                        {source.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <p className="text-[10px] text-ink/30 font-mono">
-                  等权融合 · 分析范围: {userData?.date.getFullYear()} - {(userData?.date.getFullYear() || 0) + 99}
-                </p>
-             </div>
 
-             {/* 主图：关键年份预览图 */}
-             <div className="mb-8">
-                <KeyYearsChart 
-                  keyYears={keyYears}
-                  birthYear={userData?.date.getFullYear() || 1995}
-                  currentAge={new Date().getFullYear() - (userData?.date.getFullYear() || 1995)}
-                  fullData={fullYearScores}
-                  isUnlocked={isChartUnlocked}
-                />
-             </div>
+                {/* 2. 关心的方面 */}
+                <div className="border border-accent/30 p-6 bg-accent/5">
+                  <h3 className="text-sm font-serif font-bold mb-4">2. 关心的方面</h3>
+                  <p className="text-xs text-ink/40 font-mono mb-3">允许多选，选择越少，结果越清晰垂直</p>
+                  <div className="flex flex-wrap gap-3">
+                    {[
+                      { id: 'career', label: '事业' },
+                      { id: 'emotion', label: '情感' },
+                      { id: 'family', label: '家庭' },
+                      { id: 'economy', label: '经济状况' },
+                      { id: 'social', label: '社会关系' },
+                      { id: 'spiritual', label: '精神成长' }
+                    ].map(aspect => (
+                      <button
+                        key={aspect.id}
+                        onClick={() => {
+                          if (selectedAspects.includes(aspect.id)) {
+                            setSelectedAspects(selectedAspects.filter(a => a !== aspect.id));
+                          } else {
+                            setSelectedAspects([...selectedAspects, aspect.id]);
+                          }
+                        }}
+                        className={`px-4 py-2 text-xs font-mono transition-all ${
+                          selectedAspects.includes(aspect.id)
+                            ? 'border-2 border-accent bg-accent text-white'
+                            : 'border border-ink/20 text-ink/60 hover:border-accent'
+                        }`}
+                      >
+                        {aspect.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-             {/* 关键年份列表（展示用，不可点击） */}
-             <div className="mb-8">
-                <h3 className="text-xs font-serif uppercase tracking-widest text-ink/40 mb-4 text-center">关键年份 (Key Years)</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {keyYears.map((ky) => (
-                    <div 
-                      key={ky.year}
-                      className="border p-4 border-ink/10 bg-white/50"
-                    >
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <span className="font-mono text-lg font-bold text-accent">{ky.year}</span>
-                          <span className="text-xs text-ink/40 ml-2">({ky.age}岁)</span>
-                        </div>
-                        <span className={`text-[10px] px-2 py-0.5 font-mono ${
-                          ky.type === 'peak' ? 'bg-green-100 text-green-700' :
-                          ky.type === 'valley' ? 'bg-red-100 text-red-700' :
-                          ky.type === 'turning' ? 'bg-blue-100 text-blue-700' :
-                          'bg-yellow-100 text-yellow-700'
-                        }`}>
-                          {ky.type === 'peak' ? '↑高峰' : ky.type === 'valley' ? '↓低谷' : ky.type === 'turning' ? '⟳转折' : '~波动'}
-                        </span>
-                      </div>
-                      <p className="text-sm font-serif text-ink/70">{ky.summary}</p>
-                      <div className="mt-2 flex gap-4 text-[10px] font-mono text-ink/40">
-                        <span>事业: {ky.score.career}</span>
-                        <span>情感: {ky.score.relationship}</span>
+                {/* 3. 选择年份 */}
+                <div className="border border-accent/30 p-6 bg-accent/5">
+                  <h3 className="text-sm font-serif font-bold mb-4">3. 选择年份范围</h3>
+                  <p className="text-xs text-ink/40 font-mono mb-3">单选，选择周期越短，结果越详实</p>
+                  <div className="flex flex-wrap gap-3">
+                    {[
+                      { id: 'three', label: '最近三年' },
+                      { id: 'five', label: '最近五年' },
+                      { id: 'seven', label: '最近七年' }
+                    ].map(year => (
+                      <button
+                        key={year.id}
+                        onClick={() => setSelectedYear(year.id)}
+                        className={`px-4 py-2 text-xs font-mono transition-all ${
+                          selectedYear === year.id
+                            ? 'border-2 border-accent bg-accent text-white'
+                            : 'border border-ink/20 text-ink/60 hover:border-accent'
+                        }`}
+                      >
+                        {year.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 4. 选择模型 - 从第三页移过来 */}
+                <div className="border border-accent/30 p-6 bg-accent/5">
+                  <h3 className="text-sm font-serif font-bold mb-4">4. 选择 AI 模型</h3>
+                  <p className="text-xs text-ink/40 font-mono mb-4">选择认证方式获取分析能力</p>
+                  
+                  {/* 模型选择 */}
+                  <div className="border-b border-ink/10 pb-4 mb-4">
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs font-mono text-ink/60">模型:</span>
+                      <select 
+                        value={aiModel}
+                        onChange={(e) => {
+                          setAiModel(e.target.value as 'deepseek' | 'chatgpt');
+                          setIsAuthenticated(false);
+                          setAuthError(null);
+                        }}
+                        className="text-xs font-mono border border-ink/20 px-3 py-1.5 bg-white rounded-none"
+                      >
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="chatgpt">ChatGPT</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* 认证方式 */}
+                  <div className="pb-4 mb-4">
+                    <div className="flex items-center gap-4 mb-3">
+                      <span className="text-xs font-mono text-ink/60">验证方式:</span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => { setAuthMode('activation'); setAuthError(null); }}
+                          className={`text-xs font-mono px-3 py-1 border transition-all ${
+                            authMode === 'activation' 
+                              ? 'border-accent bg-accent text-white' 
+                              : 'border-ink/20 text-ink/60 hover:border-accent/50'
+                          }`}
+                        >
+                          激活码
+                        </button>
+                        <button
+                          onClick={() => { setAuthMode('apikey'); setAuthError(null); }}
+                          className={`text-xs font-mono px-3 py-1 border transition-all ${
+                            authMode === 'apikey' 
+                              ? 'border-accent bg-accent text-white' 
+                              : 'border-ink/20 text-ink/60 hover:border-accent/50'
+                          }`}
+                        >
+                          API Key
+                        </button>
                       </div>
                     </div>
-                  ))}
+
+                    {/* 输入区域 */}
+                    <div className="flex items-center gap-3">
+                      {authMode === 'activation' ? (
+                        <input
+                          type="text"
+                          value={activationCode}
+                          onChange={(e) => {
+                            setActivationCode(e.target.value);
+                            setIsAuthenticated(false);
+                          }}
+                          placeholder="请输入激活码"
+                          className="flex-1 text-xs font-mono border border-ink/20 px-3 py-1.5 bg-white focus:border-accent focus:outline-none"
+                        />
+                      ) : (
+                        <input
+                          type="password"
+                          value={apiKey}
+                          onChange={(e) => {
+                            setApiKey(e.target.value);
+                            setIsAuthenticated(false);
+                          }}
+                          placeholder={`请输入 ${aiModel === 'deepseek' ? 'DeepSeek' : 'OpenAI'} API Key`}
+                          className="flex-1 text-xs font-mono border border-ink/20 px-3 py-1.5 bg-white focus:border-accent focus:outline-none"
+                        />
+                      )}
+                      <button
+                        onClick={handleAuth}
+                        disabled={isAuthenticated}
+                        className={`text-xs font-mono px-4 py-1.5 transition-all ${
+                          isAuthenticated 
+                            ? 'bg-green-500 text-white cursor-default' 
+                            : 'bg-ink text-paper hover:bg-accent'
+                        }`}
+                      >
+                        {isAuthenticated ? '✓ 已验证' : '验证'}
+                      </button>
+                    </div>
+
+                    {/* 错误提示 */}
+                    {authError && (
+                      <p className="mt-2 text-xs text-red-500 font-mono">{authError}</p>
+                    )}
+
+                    {/* 提示信息 */}
+                    {!isAuthenticated && (
+                      <p className="mt-2 text-[10px] text-ink/40 font-mono">
+                        {authMode === 'activation' 
+                          ? '激活码可通过邀请获取，或联系客服购买' 
+                          : `使用自己的 ${aiModel === 'deepseek' ? 'DeepSeek' : 'OpenAI'} API Key，费用由您的账户承担`
+                        }
+                      </p>
+                    )}
+                  </div>
                 </div>
-             </div>
 
-             {/* AI深度分析面板 */}
-             {showAiPanel && (
-               <div className="mb-8 border border-accent/30 p-6 bg-accent/5">
-                 <div className="flex justify-between items-start mb-4">
-                   <div>
-                     <h3 className="text-sm font-serif font-bold">整体 AI深度分析</h3>
-                     <p className="text-xs text-ink/40 font-mono">基于命理信息的事业与情感综合解读</p>
-                   </div>
-                   <button 
-                     onClick={() => setShowAiPanel(false)}
-                     className="text-ink/40 hover:text-ink text-lg"
-                   >
-                     ×
-                   </button>
-                 </div>
+                {/* 【AI深度分析】按钮 */}
+                <div className="flex justify-center pt-4">
+                  <button
+                    onClick={performAIAnalysis}
+                    disabled={isAnalyzing || !isAuthenticated || selectedInfoSources.length === 0}
+                    className={`px-8 py-3 text-sm font-mono transition-all ${
+                      isAuthenticated && selectedInfoSources.length > 0
+                        ? 'bg-accent text-white hover:bg-accent/80'
+                        : 'bg-ink/20 text-ink/40 cursor-not-allowed'
+                    } disabled:opacity-50`}
+                  >
+                    {isAnalyzing ? '正在生成AI深度分析...' : '【AI深度分析】'}
+                  </button>
+                </div>
 
-                 {/* Step 1: 模型选择 */}
-                 <div className="border-b border-ink/10 pb-4 mb-4">
-                   <div className="flex items-center gap-4">
-                     <span className="text-xs font-mono text-ink/60">1. 选择模型:</span>
-                     <select 
-                       value={aiModel}
-                       onChange={(e) => {
-                         setAiModel(e.target.value as 'deepseek' | 'chatgpt');
-                         setIsAuthenticated(false);
-                         setAuthError(null);
-                       }}
-                       className="text-xs font-mono border border-ink/20 px-3 py-1.5 bg-white rounded-none"
-                     >
-                       <option value="deepseek">DeepSeek</option>
-                       <option value="chatgpt">ChatGPT</option>
-                     </select>
-                   </div>
-                 </div>
-
-                 {/* Step 2: 认证方式 */}
-                 <div className="border-b border-ink/10 pb-4 mb-4">
-                   <div className="flex items-center gap-4 mb-3">
-                     <span className="text-xs font-mono text-ink/60">2. 验证方式:</span>
-                     <div className="flex gap-2">
-                       <button
-                         onClick={() => { setAuthMode('activation'); setAuthError(null); }}
-                         className={`text-xs font-mono px-3 py-1 border transition-all ${
-                           authMode === 'activation' 
-                             ? 'border-accent bg-accent text-white' 
-                             : 'border-ink/20 text-ink/60 hover:border-accent/50'
-                         }`}
-                       >
-                         激活码
-                       </button>
-                       <button
-                         onClick={() => { setAuthMode('apikey'); setAuthError(null); }}
-                         className={`text-xs font-mono px-3 py-1 border transition-all ${
-                           authMode === 'apikey' 
-                             ? 'border-accent bg-accent text-white' 
-                             : 'border-ink/20 text-ink/60 hover:border-accent/50'
-                         }`}
-                       >
-                         API Key
-                       </button>
-                     </div>
-                   </div>
-
-                   {/* 输入区域 */}
-                   <div className="flex items-center gap-3">
-                     {authMode === 'activation' ? (
-                       <input
-                         type="text"
-                         value={activationCode}
-                         onChange={(e) => {
-                           setActivationCode(e.target.value);
-                           setIsAuthenticated(false);
-                         }}
-                         placeholder="请输入激活码"
-                         className="flex-1 text-xs font-mono border border-ink/20 px-3 py-1.5 bg-white focus:border-accent focus:outline-none"
-                       />
-                     ) : (
-                       <input
-                         type="password"
-                         value={apiKey}
-                         onChange={(e) => {
-                           setApiKey(e.target.value);
-                           setIsAuthenticated(false);
-                         }}
-                         placeholder={`请输入 ${aiModel === 'deepseek' ? 'DeepSeek' : 'OpenAI'} API Key`}
-                         className="flex-1 text-xs font-mono border border-ink/20 px-3 py-1.5 bg-white focus:border-accent focus:outline-none"
-                       />
-                     )}
-                     <button
-                       onClick={handleAuth}
-                       disabled={isAuthenticated}
-                       className={`text-xs font-mono px-4 py-1.5 transition-all ${
-                         isAuthenticated 
-                           ? 'bg-green-500 text-white cursor-default' 
-                           : 'bg-ink text-paper hover:bg-accent'
-                       }`}
-                     >
-                       {isAuthenticated ? '✓ 已验证' : '验证'}
-                     </button>
-                   </div>
-
-                   {/* 错误提示 */}
-                   {authError && (
-                     <p className="mt-2 text-xs text-red-500 font-mono">{authError}</p>
-                   )}
-
-                   {/* 提示信息 */}
-                   {!isAuthenticated && (
-                     <p className="mt-2 text-[10px] text-ink/40 font-mono">
-                       {authMode === 'activation' 
-                         ? '激活码可通过邀请获取，或联系客服购买' 
-                         : `使用自己的 ${aiModel === 'deepseek' ? 'DeepSeek' : 'OpenAI'} API Key，费用由您的账户承担`
-                       }
-                     </p>
-                   )}
-                 </div>
-
-                 {/* Step 3: 获取分析 */}
-                 <div className="mb-4">
-                   <div className="flex items-center gap-4">
-                     <span className="text-xs font-mono text-ink/60">3. 获取分析:</span>
-                     <button
-                       onClick={() => requestAiAnalysis()}
-                       disabled={isAnalyzing || !isAuthenticated}
-                       className={`px-6 py-2 text-xs font-mono transition-all ${
-                         isAuthenticated
-                           ? 'bg-accent text-white hover:bg-accent/80'
-                           : 'bg-ink/20 text-ink/40 cursor-not-allowed'
-                       } disabled:opacity-50`}
-                     >
-                       {isAnalyzing ? '正在生成分析报告...' : '生成整体深度分析'}
-                     </button>
-                   </div>
-                   {!isAuthenticated && (
-                     <p className="mt-2 text-[10px] text-ink/40 font-mono ml-[5.5rem]">请先完成验证</p>
-                   )}
-                 </div>
-
-                 {/* AI 分析结果 */}
-                 {aiAnalysis && (
-                   <div className="border-t border-ink/10 pt-6 mt-4 ai-analysis-content">
-                     <ReactMarkdown
-                       remarkPlugins={[remarkGfm]}
-                       components={{
-                         h1: ({children}) => <h1 className="text-2xl font-serif font-bold text-ink mb-4 mt-8 pb-3 border-b-2 border-accent">{children}</h1>,
-                         h2: ({children}) => <h2 className="text-xl font-serif font-bold text-ink mb-4 mt-8 pb-2 border-b border-ink/20">{children}</h2>,
-                         h3: ({children}) => <h3 className="text-lg font-serif font-bold text-ink mb-3 mt-6">{children}</h3>,
-                         h4: ({children}) => <h4 className="text-base font-serif font-semibold text-accent mb-2 mt-5">{children}</h4>,
-                         p: ({children}) => <p className="text-sm font-serif text-ink/80 leading-relaxed mb-4">{children}</p>,
-                         ul: ({children}) => <ul className="list-disc list-inside space-y-2 mb-4 ml-2">{children}</ul>,
-                         ol: ({children}) => <ol className="list-decimal list-inside space-y-2 mb-4 ml-2">{children}</ol>,
-                         li: ({children}) => <li className="text-sm font-serif text-ink/80 leading-relaxed">{children}</li>,
-                         strong: ({children}) => <strong className="font-bold text-ink">{children}</strong>,
-                         blockquote: ({children}) => <blockquote className="border-l-4 border-accent bg-accent/5 pl-4 py-3 my-4 italic text-ink/70">{children}</blockquote>,
-                         hr: () => <hr className="my-8 border-ink/10" />,
-                         table: ({children}) => <div className="overflow-x-auto my-6"><table className="min-w-full border-collapse border border-ink/20 text-sm font-serif">{children}</table></div>,
-                         thead: ({children}) => <thead className="bg-ink/5">{children}</thead>,
-                         tbody: ({children}) => <tbody>{children}</tbody>,
-                         tr: ({children}) => <tr className="border-b border-ink/10 hover:bg-ink/5 transition-colors">{children}</tr>,
-                         th: ({children}) => <th className="border-r border-ink/10 px-4 py-2 text-left font-bold text-ink/80 last:border-r-0">{children}</th>,
-                         td: ({children}) => <td className="border-r border-ink/10 px-4 py-2 text-ink/70 last:border-r-0">{children}</td>,
-                       }}
-                     >{aiAnalysis}</ReactMarkdown>
-                   </div>
-                 )}
-               </div>
-             )}
-
-             {/* 底部操作区 */}
-             <div className="mt-12 text-center space-y-4">
-               {!showAiPanel && (
-                 <button 
-                   onClick={() => {
-                     setShowAiPanel(true);
-                     setAiAnalysis(null);
-                   }}
-                   disabled={isAnalyzing}
-                   className="btn-primary group relative overflow-hidden disabled:opacity-50"
-                 >
-                   <span className="relative z-10">
-                     获取整体AI深度分析
-                   </span>
-                   <div className="absolute inset-0 bg-accent transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-300 ease-out -z-0"></div>
-                 </button>
-               )}
-               <div>
-                 <button onClick={() => setStep('input')} className="text-xs font-mono underline hover:text-accent">
-                   重置系统
-                 </button>
-               </div>
-             </div>
-           </div>
+                {/* 分析报告展示区 */}
+                {showAnalysisReport && aiAnalysis && (
+                  <div className="border border-accent/30 p-6 bg-accent/5 mt-6">
+                    <h3 className="text-sm font-serif font-bold mb-4">AI深度分析报告</h3>
+                    <div className="ai-analysis-content">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          h1: ({children}) => <h1 className="text-2xl font-serif font-bold text-ink mb-4 mt-8 pb-3 border-b-2 border-accent">{children}</h1>,
+                          h2: ({children}) => <h2 className="text-xl font-serif font-bold text-ink mb-4 mt-8 pb-2 border-b border-ink/20">{children}</h2>,
+                          h3: ({children}) => <h3 className="text-lg font-serif font-bold text-ink mb-3 mt-6">{children}</h3>,
+                          h4: ({children}) => <h4 className="text-base font-serif font-semibold text-accent mb-2 mt-5">{children}</h4>,
+                          p: ({children}) => <p className="text-sm font-serif text-ink/80 leading-relaxed mb-4">{children}</p>,
+                          ul: ({children}) => <ul className="list-disc list-inside space-y-2 mb-4 ml-2">{children}</ul>,
+                          ol: ({children}) => <ol className="list-decimal list-inside space-y-2 mb-4 ml-2">{children}</ol>,
+                          li: ({children}) => <li className="text-sm font-serif text-ink/80 leading-relaxed">{children}</li>,
+                          strong: ({children}) => <strong className="font-bold text-ink">{children}</strong>,
+                          blockquote: ({children}) => <blockquote className="border-l-4 border-accent bg-accent/5 pl-4 py-3 my-4 italic text-ink/70">{children}</blockquote>,
+                          hr: () => <hr className="my-8 border-ink/10" />,
+                          table: ({children}) => <div className="overflow-x-auto my-6"><table className="min-w-full border-collapse border border-ink/20 text-sm font-serif">{children}</table></div>,
+                          thead: ({children}) => <thead className="bg-ink/5">{children}</thead>,
+                          tbody: ({children}) => <tbody>{children}</tbody>,
+                          tr: ({children}) => <tr className="border-b border-ink/10 hover:bg-ink/5 transition-colors">{children}</tr>,
+                          th: ({children}) => <th className="border-r border-ink/10 px-4 py-2 text-left font-bold text-ink/80 last:border-r-0">{children}</th>,
+                          td: ({children}) => <td className="border-r border-ink/10 px-4 py-2 text-ink/70 last:border-r-0">{children}</td>,
+                        }}
+                      >{aiAnalysis}</ReactMarkdown>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </main>
       
@@ -924,3 +926,4 @@ function App() {
 }
 
 export default App;
+
