@@ -234,12 +234,56 @@ function generateSummary(type: KeyYear['type'], dimension: KeyYear['dimension'],
 
 /**
  * 生成给 AI 分析用的结构化数据
- * 关键：必须明确传递已生成的分数，防止AI再次编造
+ * 包含用户完整信息、命理数据、关注方面
  */
+export interface AIContextInput {
+  keyYears: KeyYear[];
+  selectedSystems: string[];
+  targetYear?: number;
+  // 用户基本信息
+  userData?: {
+    name?: string;
+    gender?: '男' | '女';
+    orientation?: string;
+    birthDate?: Date;
+    birthPlace?: string;
+  };
+  // 选择的关注方面
+  selectedAspects?: string[];
+  // 完整命理数据
+  chartData?: {
+    bazi?: {
+      year: string;
+      month: string;
+      day: string;
+      hour: string;
+      dayGan: string;
+      dayZhi: string;
+      wuxingCount: { [key: string]: number };
+      dayMasterElement: string;
+      naYin?: { year: string; month: string; day: string; hour: string };
+      daYun?: { startAge: number; ganZhi: string }[];
+    };
+    western?: {
+      sunSign: string;
+      moonSign: string;
+      ascendant?: string;
+      planets?: { name: string; sign: string }[];
+    };
+    ziwei?: {
+      mingGong?: string;
+      palaces?: { name: string; stars: { name: string; mutagen?: string }[] }[];
+    };
+  };
+}
+
 export function prepareAIAnalysisContext(
   keyYears: KeyYear[],
   selectedSystems: string[],
-  targetYear?: number
+  targetYear?: number,
+  userData?: AIContextInput['userData'],
+  selectedAspects?: string[],
+  chartData?: AIContextInput['chartData']
 ): string {
   const systemNames = {
     bazi: '八字',
@@ -247,13 +291,119 @@ export function prepareAIAnalysisContext(
     ziwei: '紫微斗数'
   };
   
+  const aspectNames: Record<string, string> = {
+    career: '事业发展',
+    emotion: '情感婚恋',
+    family: '家庭亲情',
+    economy: '财富经济',
+    social: '社交人脉',
+    talent: '天赋潜能',
+    spiritual: '精神成长'
+  };
+  
   const systemList = selectedSystems.map(s => systemNames[s as keyof typeof systemNames] || s).join('、');
   
-  let context = `分析体系：${systemList}（等权融合）\n`;
-  context += `分析维度：事业/资源/声望 + 情感/家庭/人际（0-100分）\n\n`;
+  let context = '';
   
-  // 重点强调：关键年份的分数已确定
-  context += `【重要】以下关键年份的评分已由命理算法确定，请在分析中直接引用这些分数，不要自行编造新的分数：\n\n`;
+  // ========== 一、用户基本信息 ==========
+  context += `═══════════════════════════════════════\n`;
+  context += `一、命主基本信息\n`;
+  context += `═══════════════════════════════════════\n`;
+  
+  if (userData) {
+    if (userData.name) context += `姓名：${userData.name}\n`;
+    if (userData.gender) context += `性别：${userData.gender}\n`;
+    if (userData.orientation) context += `情感取向：${userData.orientation}\n`;
+    if (userData.birthDate) {
+      const d = userData.birthDate;
+      context += `出生时间：${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${d.getHours()}时${d.getMinutes()}分\n`;
+      const currentAge = new Date().getFullYear() - d.getFullYear();
+      context += `当前年龄：${currentAge}岁\n`;
+    }
+    if (userData.birthPlace) context += `出生地点：${userData.birthPlace}\n`;
+  }
+  context += '\n';
+  
+  // ========== 二、用户关注的领域 ==========
+  context += `═══════════════════════════════════════\n`;
+  context += `二、用户关注的人生领域\n`;
+  context += `═══════════════════════════════════════\n`;
+  
+  if (selectedAspects && selectedAspects.length > 0) {
+    const aspectLabels = selectedAspects.map(a => aspectNames[a] || a);
+    context += `重点关注：${aspectLabels.join('、')}\n`;
+    context += `请在分析中着重展开这些领域，给予具体、深入的解读和建议。\n`;
+  } else {
+    context += `用户未指定特定领域，请进行全方位综合分析。\n`;
+  }
+  context += '\n';
+  
+  // ========== 三、命理体系数据 ==========
+  context += `═══════════════════════════════════════\n`;
+  context += `三、命理数据（${systemList}）\n`;
+  context += `═══════════════════════════════════════\n\n`;
+  
+  // 八字数据
+  if (chartData?.bazi && selectedSystems.includes('bazi')) {
+    context += `【八字命盘】\n`;
+    context += `四柱：${chartData.bazi.year} ${chartData.bazi.month} ${chartData.bazi.day} ${chartData.bazi.hour}\n`;
+    context += `日主：${chartData.bazi.dayGan}（${chartData.bazi.dayMasterElement}）\n`;
+    context += `五行分布：`;
+    const wuxing = chartData.bazi.wuxingCount;
+    context += `木${wuxing['木'] || 0} 火${wuxing['火'] || 0} 土${wuxing['土'] || 0} 金${wuxing['金'] || 0} 水${wuxing['水'] || 0}\n`;
+    if (chartData.bazi.naYin) {
+      context += `纳音：年${chartData.bazi.naYin.year}、日${chartData.bazi.naYin.day}\n`;
+    }
+    if (chartData.bazi.daYun && chartData.bazi.daYun.length > 0) {
+      context += `大运（前五运）：${chartData.bazi.daYun.slice(0, 5).map(d => `${d.startAge}岁起${d.ganZhi}`).join('→')}\n`;
+    }
+    context += '\n';
+  }
+  
+  // 西方占星数据
+  if (chartData?.western && selectedSystems.includes('western')) {
+    context += `【西方星盘】\n`;
+    context += `太阳星座：${chartData.western.sunSign}\n`;
+    context += `月亮星座：${chartData.western.moonSign}\n`;
+    if (chartData.western.ascendant) {
+      context += `上升星座：${chartData.western.ascendant}\n`;
+    }
+    if (chartData.western.planets && chartData.western.planets.length > 0) {
+      const keyPlanets = chartData.western.planets.slice(0, 5);
+      context += `主要行星：${keyPlanets.map(p => `${p.name}${p.sign}`).join('、')}\n`;
+    }
+    context += '\n';
+  }
+  
+  // 紫微数据
+  if (chartData?.ziwei && selectedSystems.includes('ziwei')) {
+    context += `【紫微命盘】\n`;
+    if (chartData.ziwei.mingGong) {
+      context += `命宫：${chartData.ziwei.mingGong}\n`;
+    }
+    if (chartData.ziwei.palaces) {
+      const mingPalace = chartData.ziwei.palaces.find(p => p.name === '命宫');
+      if (mingPalace) {
+        const mainStars = mingPalace.stars.slice(0, 6);
+        context += `命宫主星：${mainStars.map(s => s.name + (s.mutagen ? `[${s.mutagen}]` : '')).join('、')}\n`;
+      }
+      // 找出有四化的重要星曜
+      const sihua = chartData.ziwei.palaces
+        .flatMap(p => p.stars.filter(s => s.mutagen).map(s => `${s.name}化${s.mutagen}在${p.name}`))
+        .slice(0, 4);
+      if (sihua.length > 0) {
+        context += `四化飞星：${sihua.join('、')}\n`;
+      }
+    }
+    context += '\n';
+  }
+  
+  // ========== 四、关键年份分析数据 ==========
+  context += `═══════════════════════════════════════\n`;
+  context += `四、关键年份（命理算法已确定分数）\n`;
+  context += `═══════════════════════════════════════\n\n`;
+  
+  context += `【重要约束】以下关键年份的评分已由命理算法确定，请在分析中直接引用这些分数，不要自行编造：\n\n`;
   
   for (const ky of keyYears) {
     context += `★ ${ky.year}年（${ky.age}岁）- ${ky.type === 'peak' ? '高峰期' : ky.type === 'valley' ? '低谷期' : ky.type === 'turning' ? '转折期' : '波动期'}\n`;
@@ -265,7 +415,7 @@ export function prepareAIAnalysisContext(
   if (targetYear) {
     const ky = keyYears.find(k => k.year === targetYear);
     if (ky) {
-      context += `\n本次重点分析年份：${targetYear}年\n`;
+      context += `\n【本次重点分析年份】${targetYear}年\n`;
       context += `该年事业指数为 ${ky.score.career}/100，情感指数为 ${ky.score.relationship}/100。\n`;
       context += `请围绕这些已确定的分数展开详细分析。\n`;
     }

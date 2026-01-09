@@ -289,8 +289,50 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
     if (result.success && result.keyYears) {
       setKeyYears(result.keyYears);
       
-      // 调用AI深度分析
-      const context = prepareAIAnalysisContext(result.keyYears, selectedInfoSources, undefined);
+      // 构建包含完整用户信息的AI分析上下文
+      const context = prepareAIAnalysisContext(
+        result.keyYears, 
+        selectedInfoSources, 
+        undefined,
+        // 用户基本信息
+        {
+          name: userData.name,
+          gender: userData.gender,
+          orientation: userData.orientation,
+          birthDate: userData.date,
+          birthPlace: userData.place,
+        },
+        // 用户关注的方面
+        selectedAspects,
+        // 完整命理数据
+        {
+          bazi: selectedInfoSources.includes('bazi') ? {
+            year: chartData.bazi.year,
+            month: chartData.bazi.month,
+            day: chartData.bazi.day,
+            hour: chartData.bazi.hour,
+            dayGan: chartData.bazi.dayGan,
+            dayZhi: chartData.bazi.dayZhi,
+            wuxingCount: chartData.bazi.wuxingCount,
+            dayMasterElement: chartData.bazi.dayMasterElement,
+            naYin: chartData.bazi.naYin,
+            daYun: chartData.bazi.daYun?.map(d => ({ startAge: d.startAge, ganZhi: d.ganZhi })),
+          } : undefined,
+          western: selectedInfoSources.includes('western') ? {
+            sunSign: chartData.western.sunSign,
+            moonSign: chartData.western.moonSign,
+            ascendant: chartData.western.ascendant,
+            planets: chartData.western.planets?.map(p => ({ name: p.name, sign: p.sign })),
+          } : undefined,
+          ziwei: selectedInfoSources.includes('ziwei') ? {
+            mingGong: chartData.ziwei.mingGong,
+            palaces: chartData.ziwei.palaces?.map(p => ({
+              name: p.name,
+              stars: p.stars.map(s => ({ name: s.name, mutagen: s.mutagen })),
+            })),
+          } : undefined,
+        }
+      );
       const { systemPrompt, userPrompt } = buildAnalysisPrompt(context, aiModel, undefined);
 
       const analysisResult = await callAIService({
@@ -671,17 +713,18 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                     {chartData.ziwei.palaces?.map((palace) => (
                       <div
                         key={palace.name}
-                        className={`p-2 border ${palace.name === '命宫' ? 'border-ink bg-ink/5' : 'border-ink/10'} flex flex-col text-center`}
+                        className={`p-2 border ${palace.name === '命宫' ? 'border-ink bg-ink/5' : 'border-ink/10'}`}
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}
                       >
-                        <div className="font-bold">{palace.name}</div>
-                        <div className="text-ink/50 text-[11px] font-mono">
+                        <div className="font-bold" style={{ width: '100%', textAlign: 'center' }}>{palace.name}</div>
+                        <div className="text-ink/50 text-[11px] font-mono" style={{ width: '100%', textAlign: 'center' }}>
                           {palace.heavenlyStem}{palace.earthlyBranch}
                         </div>
-                        <div className="mt-2 flex flex-wrap justify-center gap-1">
+                        <div className="mt-2 gap-1" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
                           {palace.stars.slice(0, 10).map((s) => (
                             <span
                               key={`${palace.name}-${s.name}-${s.mutagen ?? ''}`}
-                              className="px-1 py-0.5 border border-ink/10 font-mono text-[10px] text-ink/80"
+                              className="inline-flex items-center px-1 py-0.5 border border-ink/10 font-mono text-[10px] text-ink/80"
                             >
                               {s.name}
                               {s.mutagen ? <MutagenBadge mutagen={s.mutagen} /> : null}
@@ -689,7 +732,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                           ))}
                         </div>
                         {palace.stars.length > 10 ? (
-                          <div className="mt-2 text-[10px] font-mono text-ink/40">
+                          <div className="mt-2 text-[10px] font-mono text-ink/40" style={{ width: '100%', textAlign: 'center' }}>
                             +{palace.stars.length - 10}...
                           </div>
                         ) : null}
