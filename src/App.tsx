@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import html2canvas from 'html2canvas';
 import MinimalForm from './components/MinimalForm';
 import { AstrologyEngine, BaseChartData } from './lib/AstrologyEngine';
 import { KeyYear } from './components/DualLineChart';
@@ -31,14 +32,17 @@ const DescriptionPanel = ({
   description, 
   visible, 
   copyLabel, 
-  onCopy 
+  onCopy,
+  onCopyImage
 }: { 
   description: string, 
   visible: boolean,
   copyLabel?: string,
-  onCopy?: () => void
+  onCopy?: () => void,
+  onCopyImage?: () => void
 }) => {
   const [copied, setCopied] = React.useState(false);
+  const [imageCopied, setImageCopied] = React.useState(false);
 
   const handleCopy = () => {
     if (onCopy) {
@@ -48,21 +52,44 @@ const DescriptionPanel = ({
     }
   };
 
+  const handleCopyImage = async () => {
+    if (onCopyImage) {
+      await onCopyImage();
+      setImageCopied(true);
+      setTimeout(() => setImageCopied(false), 2000);
+    }
+  };
+
   return (
     <div className={`transition-all duration-300 ${visible ? 'opacity-100' : 'opacity-0 pointer-events-none'} md:absolute md:left-full md:top-0 md:ml-4 md:w-48`}>
       <div className="text-xs text-ink/50 border-l-2 border-accent/30 pl-3 italic leading-relaxed">
         {description}
       </div>
-      {copyLabel && onCopy && visible && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleCopy();
-          }}
-          className="mt-3 ml-3 px-3 py-1.5 text-[11px] font-mono border border-ink/20 hover:border-accent hover:text-accent transition-colors bg-paper"
-        >
-          {copied ? '已复制 ✓' : `复制${copyLabel}信息`}
-        </button>
+      {copyLabel && visible && (
+        <div className="mt-3 ml-3 space-y-2">
+          {onCopy && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopy();
+              }}
+              className="w-full px-3 py-1.5 text-[11px] font-mono border border-ink/20 hover:border-accent hover:text-accent transition-colors bg-paper"
+            >
+              {copied ? '已复制 ✓' : `复制${copyLabel}信息`}
+            </button>
+          )}
+          {onCopyImage && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopyImage();
+              }}
+              className="w-full px-3 py-1.5 text-[11px] font-mono border border-ink/20 hover:border-accent hover:text-accent transition-colors bg-paper"
+            >
+              {imageCopied ? '已复制 ✓' : '复制图片'}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -91,6 +118,11 @@ function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+
+  // Refs for card screenshots
+  const baziCardRef = useRef<HTMLDivElement>(null);
+  const westernCardRef = useRef<HTMLDivElement>(null);
+  const ziweiCardRef = useRef<HTMLDivElement>(null);
   const [historyList, setHistoryList] = useState<AnalysisHistoryItem[]>([]);
   const [viewingHistoryItem, setViewingHistoryItem] = useState<AnalysisHistoryItem | null>(null);
 
@@ -158,6 +190,40 @@ ${western.planets.map(p => `  ${p.name}：${p.sign} (${p.angle}°)`).join('\n')}
 ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：${p.stars.map(s => s.name + (s.mutagen ? `[${s.mutagen}]` : '')).join('、')}`).join('\n') || ''}`;
     navigator.clipboard.writeText(text);
   };
+
+  // 复制卡片截图到剪贴板的函数
+  const copyCardImage = async (cardRef: React.RefObject<HTMLDivElement>) => {
+    if (!cardRef.current) return;
+    
+    try {
+      const canvas = await html2canvas(cardRef.current, {
+        backgroundColor: '#f5f5f0',
+        scale: 2,
+        logging: false,
+        useCORS: true
+      });
+      
+      canvas.toBlob(async (blob) => {
+        if (blob) {
+          try {
+            await navigator.clipboard.write([
+              new ClipboardItem({
+                'image/png': blob
+              })
+            ]);
+          } catch (err) {
+            console.error('复制图片失败:', err);
+          }
+        }
+      });
+    } catch (error) {
+      console.error('截图失败:', error);
+    }
+  };
+
+  const copyBaziImage = () => copyCardImage(baziCardRef);
+  const copyWesternImage = () => copyCardImage(westernCardRef);
+  const copyZiweiImage = () => copyCardImage(ziweiCardRef);
 
   const startAnalysis = async () => {
     // 第二页点击"启动命运分析"按钮时，展开更多选项
@@ -447,6 +513,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
               {/* Bazi Card */}
               <div className="relative">
                 <div 
+                  ref={baziCardRef}
                   onClick={() => toggleChartSelection('bazi')}
                   className={`cursor-pointer transition-all duration-300 ${selectedCharts.includes('bazi') ? 'ring-2 ring-accent ring-offset-4 ring-offset-paper' : 'opacity-70 hover:opacity-100'}`}
                 >
@@ -537,12 +604,14 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   visible={selectedCharts.includes('bazi')}
                   copyLabel="八字"
                   onCopy={copyBaziInfo}
+                  onCopyImage={copyBaziImage}
                 />
               </div>
 
               {/* Western Card */}
               <div className="relative">
                 <div 
+                  ref={westernCardRef}
                   onClick={() => toggleChartSelection('western')}
                   className={`cursor-pointer transition-all duration-300 ${selectedCharts.includes('western') ? 'ring-2 ring-accent ring-offset-4 ring-offset-paper' : 'opacity-70 hover:opacity-100'}`}
                 >
@@ -586,12 +655,14 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   visible={selectedCharts.includes('western')}
                   copyLabel="天体"
                   onCopy={copyWesternInfo}
+                  onCopyImage={copyWesternImage}
                 />
               </div>
 
               {/* Ziwei Card (Simplified) */}
               <div className="relative">
                 <div 
+                  ref={ziweiCardRef}
                   onClick={() => toggleChartSelection('ziwei')}
                   className={`cursor-pointer transition-all duration-300 ${selectedCharts.includes('ziwei') ? 'ring-2 ring-accent ring-offset-4 ring-offset-paper' : 'opacity-70 hover:opacity-100'}`}
                 >
@@ -632,6 +703,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   visible={selectedCharts.includes('ziwei')}
                   copyLabel="紫微"
                   onCopy={copyZiweiInfo}
+                  onCopyImage={copyZiweiImage}
                 />
               </div>
             </div>
