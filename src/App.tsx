@@ -98,7 +98,6 @@ function App() {
   const [showExpandedOptions, setShowExpandedOptions] = useState(false);
   const [selectedInfoSources, setSelectedInfoSources] = useState<string[]>([]);
   const [selectedAspects, setSelectedAspects] = useState<string[]>([]);
-  const [selectedYear, setSelectedYear] = useState('seven');
   const [showAnalysisReport, setShowAnalysisReport] = useState(false);
 
   // 加载历史记录
@@ -117,13 +116,11 @@ function App() {
 
   const toggleChartSelection = (chart: string) => {
     if (selectedCharts.includes(chart)) {
-      // 取消选中上面的卡片，同时取消选中下面的按钮
+      // 取消选中卡片
       setSelectedCharts(selectedCharts.filter(c => c !== chart));
-      setSelectedInfoSources(selectedInfoSources.filter(s => s !== chart));
     } else {
-      // 选中上面的卡片，同时选中下面的按钮
+      // 选中卡片
       setSelectedCharts([...selectedCharts, chart]);
-      setSelectedInfoSources([...selectedInfoSources, chart]);
     }
   };
 
@@ -164,10 +161,9 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
 
   const startAnalysis = async () => {
     // 第二页点击"启动命运分析"按钮时，展开更多选项
-    // 初始化选择为用户选中的卡片
-    setSelectedInfoSources([...selectedCharts]);
+    // 默认使用所有三种体系进行混合分析
+    setSelectedInfoSources(['bazi', 'western', 'ziwei']);
     setSelectedAspects([]);
-    setSelectedYear('seven');
     setShowExpandedOptions(true);
     setShowAnalysisReport(false);
     setAiAnalysis(null);
@@ -663,47 +659,20 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
             {/* 展开的选项面板 */}
             {showExpandedOptions && (
               <div className="mt-8 space-y-6 animate-slide-up">
-                {/* 1. 选择信息源 */}
+                {/* 体系介绍 */}
                 <div className="border border-accent/30 p-6 bg-accent/5">
-                  <h3 className="text-sm font-serif font-bold mb-4">1. 选择信息源</h3>
-                  <p className="text-xs text-ink/40 font-mono mb-3">与上方卡片选择一一对应，允许多选</p>
-                  <div className="flex flex-wrap gap-3">
-                    {[
-                      { id: 'bazi', label: '生辰八字' },
-                      { id: 'western', label: '天体星座' },
-                      { id: 'ziwei', label: '紫微斗数' }
-                    ].map(source => (
-                      <button
-                        key={source.id}
-                        onClick={() => {
-                          // 双向关联：点击下面的按钮时，上面的卡片也会被选中/取消
-                          if (selectedInfoSources.includes(source.id)) {
-                            // 已选中，取消选中
-                            setSelectedInfoSources(selectedInfoSources.filter(s => s !== source.id));
-                            setSelectedCharts(selectedCharts.filter(c => c !== source.id));
-                          } else {
-                            // 未选中，选中
-                            setSelectedInfoSources([...selectedInfoSources, source.id]);
-                            if (!selectedCharts.includes(source.id)) {
-                              setSelectedCharts([...selectedCharts, source.id]);
-                            }
-                          }
-                        }}
-                        className={`px-4 py-2 text-xs font-mono transition-all ${
-                          selectedInfoSources.includes(source.id)
-                            ? 'border-2 border-accent bg-accent text-white'
-                            : 'border border-ink/20 text-ink/60 hover:border-accent'
-                        }`}
-                      >
-                        {source.label}
-                      </button>
-                    ))}
+                  <h3 className="text-sm font-serif font-bold mb-4">混合体系分析</h3>
+                  <div className="text-xs text-ink/60 font-mono space-y-2">
+                    <p><span className="font-bold text-accent">生辰八字</span>：基于出生时间的天干地支，擅长分析性格特质、事业走向、五行喜忌</p>
+                    <p><span className="font-bold text-accent">天体星座</span>：基于行星位置与星座关系，擅长解读情感模式、人际关系、心理动机</p>
+                    <p><span className="font-bold text-accent">紫微斗数</span>：基于命宫星曜排布，擅长推演人生大运、财富状况、婚姻家庭</p>
+                    <p className="text-[10px] text-ink/40 mt-3">我们将综合运用三种体系，为您提供多维度的命运解读。<a href="#" className="text-accent hover:underline">了解更多 →</a></p>
                   </div>
                 </div>
 
-                {/* 2. 关心的方面 */}
+                {/* 1. 关心的方面 */}
                 <div className="border border-accent/30 p-6 bg-accent/5">
-                  <h3 className="text-sm font-serif font-bold mb-4">2. 关心的方面</h3>
+                  <h3 className="text-sm font-serif font-bold mb-4">1. 关心的方面</h3>
                   <p className="text-xs text-ink/40 font-mono mb-3">允许多选，选择越少，结果越清晰垂直</p>
                   <div className="flex flex-wrap gap-3">
                     {[
@@ -712,6 +681,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                       { id: 'family', label: '家庭' },
                       { id: 'economy', label: '经济状况' },
                       { id: 'social', label: '社会关系' },
+                      { id: 'talent', label: '天赋挖掘' },
                       { id: 'spiritual', label: '精神成长' }
                     ].map(aspect => (
                       <button
@@ -735,34 +705,9 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   </div>
                 </div>
 
-                {/* 3. 选择年份 */}
+                {/* 2. 选择模型 */}
                 <div className="border border-accent/30 p-6 bg-accent/5">
-                  <h3 className="text-sm font-serif font-bold mb-4">3. 选择年份范围</h3>
-                  <p className="text-xs text-ink/40 font-mono mb-3">单选，选择周期越短，结果越详实</p>
-                  <div className="flex flex-wrap gap-3">
-                    {[
-                      { id: 'three', label: '最近三年' },
-                      { id: 'five', label: '最近五年' },
-                      { id: 'seven', label: '最近七年' }
-                    ].map(year => (
-                      <button
-                        key={year.id}
-                        onClick={() => setSelectedYear(year.id)}
-                        className={`px-4 py-2 text-xs font-mono transition-all ${
-                          selectedYear === year.id
-                            ? 'border-2 border-accent bg-accent text-white'
-                            : 'border border-ink/20 text-ink/60 hover:border-accent'
-                        }`}
-                      >
-                        {year.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 4. 选择模型 - 从第三页移过来 */}
-                <div className="border border-accent/30 p-6 bg-accent/5">
-                  <h3 className="text-sm font-serif font-bold mb-4">4. 选择 AI 模型</h3>
+                  <h3 className="text-sm font-serif font-bold mb-4">2. 选择 AI 模型</h3>
                   <p className="text-xs text-ink/40 font-mono mb-4">选择认证方式获取分析能力</p>
                   
                   {/* 模型选择 */}
@@ -871,9 +816,9 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                 <div className="flex justify-center pt-4">
                   <button
                     onClick={performAIAnalysis}
-                    disabled={isAnalyzing || !isAuthenticated || selectedInfoSources.length === 0}
+                    disabled={isAnalyzing || !isAuthenticated || selectedAspects.length === 0}
                     className={`px-8 py-3 text-sm font-mono transition-all ${
-                      isAuthenticated && selectedInfoSources.length > 0
+                      isAuthenticated && selectedAspects.length > 0
                         ? 'bg-accent text-white hover:bg-accent/80'
                         : 'bg-ink/20 text-ink/40 cursor-not-allowed'
                     } disabled:opacity-50`}
