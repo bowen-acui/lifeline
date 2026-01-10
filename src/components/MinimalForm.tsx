@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { lookupCity, LOCATION_DATA, Country, Region, getCityTimezone } from '../lib/CityLookup';
+import { lookupCity, getCityTimezone } from '../lib/CityLookup';
+import { FALLBACK_DATA, getFallbackRegions, getFallbackCities, searchCities, GeoCity } from '../lib/GeoService';
 
 interface MinimalFormProps {
     onSubmit: (data: { date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string }) => void;
@@ -18,9 +19,17 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
     const [orientation, setOrientation] = useState('');
     const [locationStatus, setLocationStatus] = useState<{valid: boolean, msg: string} | null>(null);
 
-    // Location Select State
-    const [selectedCountry, setSelectedCountry] = useState<Country | null>(null);
-    const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
+    // Location Select State - 使用备用数据
+    const [selectedCountry, setSelectedCountry] = useState<string>('');
+    const [selectedRegion, setSelectedRegion] = useState<string>('');
+    const [regions, setRegions] = useState<string[]>([]);
+    const [cities, setCities] = useState<string[]>([]);
+    
+    // 搜索模式
+    const [useSearchMode, setUseSearchMode] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchResults, setSearchResults] = useState<GeoCity[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
 
     const yearRef = useRef<HTMLInputElement>(null);
     const monthRef = useRef<HTMLInputElement>(null);
@@ -32,18 +41,17 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
 
     // Initialize default location
     useEffect(() => {
-        if (LOCATION_DATA.length > 0) {
-             const china = LOCATION_DATA.find(c => c.name === '中国');
-             if (china) {
-                 setSelectedCountry(china);
-                 const beijingRegion = china.regions.find(r => r.cities.includes('北京'));
-                 if (beijingRegion) {
-                     setSelectedRegion(beijingRegion);
-                     setBirthPlace('北京');
-                     setLocationStatus({ valid: true, msg: '已定位: 39.90, 116.41 (Asia/Shanghai)' });
-                 }
-             }
-        }
+        // 默认选中中国
+        const defaultCountry = '中国';
+        setSelectedCountry(defaultCountry);
+        setRegions(getFallbackRegions(defaultCountry));
+        
+        // 默认选中直辖市 -> 北京
+        const defaultRegion = '直辖市';
+        setSelectedRegion(defaultRegion);
+        setCities(getFallbackCities(defaultCountry, defaultRegion));
+        setBirthPlace('北京');
+        setLocationStatus({ valid: true, msg: '已定位: 39.90, 116.41 (Asia/Shanghai)' });
     }, []);
 
     const handleYearChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -78,20 +86,26 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
 
     const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const countryName = e.target.value;
-        const country = LOCATION_DATA.find(c => c.name === countryName) || null;
-        setSelectedCountry(country);
-        setSelectedRegion(null);
+        setSelectedCountry(countryName);
+        setSelectedRegion('');
         setBirthPlace('');
         setLocationStatus(null);
+        
+        // 加载该国家的省份
+        const regionList = getFallbackRegions(countryName);
+        setRegions(regionList);
+        setCities([]);
     };
 
     const handleRegionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const regionName = e.target.value;
-        if (!selectedCountry) return;
-        const region = selectedCountry.regions.find(r => r.name === regionName) || null;
-        setSelectedRegion(region);
+        setSelectedRegion(regionName);
         setBirthPlace('');
         setLocationStatus(null);
+        
+        // 加载该省份的城市
+        const cityList = getFallbackCities(selectedCountry, regionName);
+        setCities(cityList);
     };
 
     const handleCityChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -103,8 +117,31 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
              const tz = getCityTimezone(city);
              setLocationStatus({ valid: true, msg: `已定位: ${coords.lat.toFixed(2)}, ${coords.lng.toFixed(2)} (${tz})` });
         } else {
-             setLocationStatus(null);
+             setLocationStatus({ valid: true, msg: `已选择: ${city}` });
         }
+    };
+
+    // 搜索城市
+    const handleSearch = async () => {
+        if (!searchQuery.trim()) return;
+        setIsSearching(true);
+        try {
+            const results = await searchCities(searchQuery);
+            setSearchResults(results);
+        } catch (error) {
+            console.error('Search failed:', error);
+        }
+        setIsSearching(false);
+    };
+
+    const handleSelectSearchResult = (city: GeoCity) => {
+        setBirthPlace(city.name);
+        setLocationStatus({ 
+            valid: true, 
+            msg: `已定位: ${city.lat.toFixed(2)}, ${city.lng.toFixed(2)} (${city.timezone || 'UTC'})` 
+        });
+        setSearchResults([]);
+        setSearchQuery('');
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -201,44 +238,95 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                 </div>
                 
                 <div className="group">
-                    <label htmlFor="birthPlace" className="block text-xs font-serif text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生地点 (Coordinates)</label>
-                    <div className="flex gap-4">
-                        <select 
-                            ref={countryRef}
-                            value={selectedCountry?.name || ''} 
-                            onChange={handleCountryChange}
-                            className="minimal-input w-1/3"
+                    <div className="flex items-center justify-between mb-2">
+                        <label htmlFor="birthPlace" className="block text-xs font-serif text-ink/40 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生地点 (Coordinates)</label>
+                        <button 
+                            type="button"
+                            onClick={() => setUseSearchMode(!useSearchMode)}
+                            className="text-xs text-accent hover:underline font-mono"
                         >
-                            <option value="" disabled>选择国家/地区</option>
-                            {LOCATION_DATA.map(c => (
-                                <option key={c.name} value={c.name}>{c.name}</option>
-                            ))}
-                        </select>
-
-                        <select 
-                            value={selectedRegion?.name || ''} 
-                            onChange={handleRegionChange}
-                            className="minimal-input w-1/3"
-                            disabled={!selectedCountry}
-                        >
-                            <option value="" disabled>选择省份/区域</option>
-                            {selectedCountry?.regions.map(r => (
-                                <option key={r.name} value={r.name}>{r.name}</option>
-                            ))}
-                        </select>
-
-                        <select 
-                            value={birthPlace} 
-                            onChange={handleCityChange}
-                            className="minimal-input w-1/3"
-                            disabled={!selectedRegion}
-                        >
-                            <option value="" disabled>选择城市</option>
-                            {selectedRegion?.cities.map(c => (
-                                <option key={c} value={c}>{c}</option>
-                            ))}
-                        </select>
+                            {useSearchMode ? '← 返回选择' : '搜索城市 →'}
+                        </button>
                     </div>
+                    
+                    {useSearchMode ? (
+                        // 搜索模式
+                        <div className="space-y-2">
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearch())}
+                                    placeholder="输入城市名搜索（支持中英文）"
+                                    className="minimal-input flex-1"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleSearch}
+                                    disabled={isSearching}
+                                    className="px-4 py-2 border border-ink/20 text-xs font-mono hover:border-accent transition-colors disabled:opacity-50"
+                                >
+                                    {isSearching ? '搜索中...' : '搜索'}
+                                </button>
+                            </div>
+                            {searchResults.length > 0 && (
+                                <div className="border border-ink/10 max-h-48 overflow-y-auto">
+                                    {searchResults.map((city, idx) => (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onClick={() => handleSelectSearchResult(city)}
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-accent/10 transition-colors border-b border-ink/5 last:border-0"
+                                        >
+                                            <span className="font-medium">{city.name}</span>
+                                            <span className="text-ink/40 ml-2 text-xs">{city.adminName1}, {city.countryName}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        // 下拉选择模式
+                        <div className="flex gap-4">
+                            <select 
+                                ref={countryRef}
+                                value={selectedCountry} 
+                                onChange={handleCountryChange}
+                                className="minimal-input w-1/3"
+                            >
+                                <option value="" disabled>选择国家</option>
+                                {Object.keys(FALLBACK_DATA).map(c => (
+                                    <option key={c} value={c}>{c}</option>
+                                ))}
+                            </select>
+
+                            <select 
+                                value={selectedRegion} 
+                                onChange={handleRegionChange}
+                                className="minimal-input w-1/3"
+                                disabled={!selectedCountry}
+                            >
+                                <option value="" disabled>选择省份/地区</option>
+                                {regions.map(r => (
+                                    <option key={r} value={r}>{r}</option>
+                                ))}
+                            </select>
+
+                            <select 
+                                value={birthPlace} 
+                                onChange={handleCityChange}
+                                className="minimal-input w-1/3"
+                                disabled={!selectedRegion}
+                            >
+                                <option value="" disabled>选择城市</option>
+                                {cities.map(c => (
+                                    <option key={c} value={c}>{c}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+                    
                     {locationStatus && (
                         <div className={`text-xs mt-2 font-mono ${locationStatus.valid ? 'text-green-600' : 'text-amber-600'}`}>
                             {locationStatus.msg}
