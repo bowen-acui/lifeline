@@ -1,17 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import html2canvas from 'html2canvas';
 import MinimalForm from './components/MinimalForm';
+import DeepAnalysisPage from './components/DeepAnalysisPage';
 import { AstrologyEngine, BaseChartData } from './lib/AstrologyEngine';
 import { KeyYear } from './components/DualLineChart';
 import { prepareAIAnalysisContext } from './lib/ScoreGenerator';
 import { generatePreviewAnalysis } from './lib/PreviewAnalysisService';
 import { getCoordinates } from './lib/CityLookup';
-import { buildAnalysisPrompt, validateActivationCode, validateApiKey } from './lib/AIPrompts';
+import { buildAnalysisPrompt } from './lib/AIPrompts';
 import { callAIService } from './lib/AIService';
 import { 
   getAnalysisHistory, 
+  saveAnalysis,
   formatTimestamp,
   type AnalysisHistoryItem 
 } from './lib/HistoryStorage';
@@ -102,21 +105,21 @@ const MutagenBadge = ({ mutagen }: { mutagen: string }) => (
 );
 
 function App() {
-  const [step, setStep] = useState<'input' | 'charts'>('input');
+  const [step, setStep] = useState<'input' | 'charts' | 'deepAnalysis'>('input');
   const [chartData, setChartData] = useState<BaseChartData | null>(null);
   const [userData, setUserData] = useState<{ date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string } | null>(null);
   const [selectedCharts, setSelectedCharts] = useState<string[]>([]);
   // @ts-expect-error - Used in performAIAnalysis via result.keyYears
   const [keyYears, setKeyYears] = useState<KeyYear[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [aiModel, setAiModel] = useState<'deepseek' | 'chatgpt'>('deepseek');
-  const [authMode, setAuthMode] = useState<'activation' | 'apikey'>('activation');
-  const [activationCode, setActivationCode] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  // 以下认证相关状态已注释，直接使用 .env 中的 DeepSeek API
+  // const [aiModel, setAiModel] = useState<'deepseek' | 'chatgpt'>('deepseek');
+  // const [authMode, setAuthMode] = useState<'activation' | 'apikey'>('activation');
+  // const [activationCode, setActivationCode] = useState('');
+  // const [apiKey, setApiKey] = useState('');
+  // const [authError, setAuthError] = useState<string | null>(null);
+  // const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
   // Refs for card screenshots
@@ -128,14 +131,44 @@ function App() {
 
   // 第二页新增选项
   const [showExpandedOptions, setShowExpandedOptions] = useState(false);
-  const [selectedInfoSources, setSelectedInfoSources] = useState<string[]>([]);
   const [selectedAspects, setSelectedAspects] = useState<string[]>([]);
   const [showAnalysisReport, setShowAnalysisReport] = useState(false);
+  // 命理体系选择
+  const [selectedSystems, setSelectedSystems] = useState<('bazi' | 'western' | 'ziwei')[]>([]);
+  // 多体系分析结果
+  const [multiSystemAnalysis, setMultiSystemAnalysis] = useState<{
+    bazi?: string;
+    western?: string;
+    ziwei?: string;
+  }>({});
+
+  // 深度分析页面状态
+  const [deepSelectedHistoryIds, setDeepSelectedHistoryIds] = useState<string[]>([]);
+  const [deepChatMessages, setDeepChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>(() => {
+    // 从 localStorage 加载对话历史
+    try {
+      const saved = localStorage.getItem('lifeline_deep_chat_messages');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [deepChatInput, setDeepChatInput] = useState('');
+  const [isDeepChatLoading, setIsDeepChatLoading] = useState(false);
 
   // 加载历史记录
   useEffect(() => {
     setHistoryList(getAnalysisHistory());
   }, []);
+
+  // 保存对话历史到 localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('lifeline_deep_chat_messages', JSON.stringify(deepChatMessages));
+    } catch (error) {
+      console.error('保存对话历史失败:', error);
+    }
+  }, [deepChatMessages]);
 
   const handleFormSubmit = (data: { date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string }) => {
     // 1. Generate Charts locally
@@ -227,25 +260,18 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
 
   const startAnalysis = async () => {
     // 第二页点击"启动命运分析"按钮时，展开更多选项
-    // 默认使用所有三种体系进行混合分析
-    setSelectedInfoSources(['bazi', 'western', 'ziwei']);
     setSelectedAspects([]);
     setShowExpandedOptions(true);
     setShowAnalysisReport(false);
-    setAiAnalysis(null);
-    setAuthError(null);
-    setIsAuthenticated(false);
+    setMultiSystemAnalysis({});
   };
 
   const performAIAnalysis = async () => {
     if (!userData || !chartData) return;
-    if (!isAuthenticated) {
-      setAuthError('请先完成身份验证');
-      return;
-    }
     
     setIsAnalyzing(true);
     setPreviewError(null);
+    setMultiSystemAnalysis({});
     
     const birthYear = userData.date.getFullYear();
     const currentAge = new Date().getFullYear() - birthYear;
@@ -280,73 +306,125 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
     const result = await generatePreviewAnalysis({
       birthYear,
       currentAge,
-      selectedSystems: selectedInfoSources as ('bazi' | 'western' | 'ziwei')[],
-      baziData: selectedInfoSources.includes('bazi') ? baziData : undefined,
-      westernData: selectedInfoSources.includes('western') ? westernData : undefined,
-      ziweiData: selectedInfoSources.includes('ziwei') ? ziweiData : undefined,
+      selectedSystems: selectedSystems,
+      baziData: selectedSystems.includes('bazi') ? baziData : undefined,
+      westernData: selectedSystems.includes('western') ? westernData : undefined,
+      ziweiData: selectedSystems.includes('ziwei') ? ziweiData : undefined,
     });
     
     if (result.success && result.keyYears) {
       setKeyYears(result.keyYears);
       
-      // 构建包含完整用户信息的AI分析上下文
-      const context = prepareAIAnalysisContext(
-        result.keyYears, 
-        selectedInfoSources, 
-        undefined,
-        // 用户基本信息
-        {
-          name: userData.name,
-          gender: userData.gender,
-          orientation: userData.orientation,
-          birthDate: userData.date,
-          birthPlace: userData.place,
-        },
-        // 用户关注的方面
-        selectedAspects,
-        // 完整命理数据
-        {
-          bazi: selectedInfoSources.includes('bazi') ? {
-            year: chartData.bazi.year,
-            month: chartData.bazi.month,
-            day: chartData.bazi.day,
-            hour: chartData.bazi.hour,
-            dayGan: chartData.bazi.dayGan,
-            dayZhi: chartData.bazi.dayZhi,
-            wuxingCount: chartData.bazi.wuxingCount,
-            dayMasterElement: chartData.bazi.dayMasterElement,
-            naYin: chartData.bazi.naYin,
-            daYun: chartData.bazi.daYun?.map(d => ({ startAge: d.startAge, ganZhi: d.ganZhi })),
-          } : undefined,
-          western: selectedInfoSources.includes('western') ? {
-            sunSign: chartData.western.sunSign,
-            moonSign: chartData.western.moonSign,
-            ascendant: chartData.western.ascendant,
-            planets: chartData.western.planets?.map(p => ({ name: p.name, sign: p.sign })),
-          } : undefined,
-          ziwei: selectedInfoSources.includes('ziwei') ? {
-            mingGong: chartData.ziwei.mingGong,
-            palaces: chartData.ziwei.palaces?.map(p => ({
-              name: p.name,
-              stars: p.stars.map(s => ({ name: s.name, mutagen: s.mutagen })),
-            })),
-          } : undefined,
-        }
-      );
-      const { systemPrompt, userPrompt } = buildAnalysisPrompt(context, aiModel, undefined);
+      // 并行为每个选中的体系生成分析
+      const analysisPromises = selectedSystems.map(async (system) => {
+        // 构建该体系的AI分析上下文
+        const context = prepareAIAnalysisContext(
+          result.keyYears!, 
+          [system], 
+          undefined,
+          // 用户基本信息
+          {
+            name: userData.name,
+            gender: userData.gender,
+            orientation: userData.orientation,
+            birthDate: userData.date,
+            birthPlace: userData.place,
+          },
+          // 用户关注的方面
+          selectedAspects,
+          // 只包含当前体系的命理数据
+          {
+            bazi: system === 'bazi' ? {
+              year: chartData.bazi.year,
+              month: chartData.bazi.month,
+              day: chartData.bazi.day,
+              hour: chartData.bazi.hour,
+              dayGan: chartData.bazi.dayGan,
+              dayZhi: chartData.bazi.dayZhi,
+              wuxingCount: chartData.bazi.wuxingCount,
+              dayMasterElement: chartData.bazi.dayMasterElement,
+              naYin: chartData.bazi.naYin,
+              daYun: chartData.bazi.daYun?.map(d => ({ startAge: d.startAge, ganZhi: d.ganZhi })),
+            } : undefined,
+            western: system === 'western' ? {
+              sunSign: chartData.western.sunSign,
+              moonSign: chartData.western.moonSign,
+              ascendant: chartData.western.ascendant,
+              planets: chartData.western.planets?.map(p => ({ name: p.name, sign: p.sign })),
+            } : undefined,
+            ziwei: system === 'ziwei' ? {
+              mingGong: chartData.ziwei.mingGong,
+              palaces: chartData.ziwei.palaces?.map(p => ({
+                name: p.name,
+                stars: p.stars.map(s => ({ name: s.name, mutagen: s.mutagen })),
+              })),
+            } : undefined,
+          }
+        );
+        
+        const { systemPrompt, userPrompt } = buildAnalysisPrompt(context, 'deepseek', undefined, system);
 
-      const analysisResult = await callAIService({
-        systemPrompt,
-        userPrompt,
-        model: aiModel,
-        apiKey: authMode === 'apikey' ? apiKey : undefined,
-        userData,
-        chartData,
+        const analysisResult = await callAIService({
+          systemPrompt,
+          userPrompt,
+          model: 'deepseek',
+          apiKey: undefined, // 使用 .env 中的 API key
+          userData,
+          chartData,
+        });
+
+        return { system, result: analysisResult };
       });
 
-      if (analysisResult.success && analysisResult.analysis) {
-        setAiAnalysis(analysisResult.analysis);
+      // 等待所有分析完成
+      const analysisResults = await Promise.all(analysisPromises);
+      
+      // 收集结果
+      const newMultiAnalysis: { bazi?: string; western?: string; ziwei?: string } = {};
+      let hasSuccess = false;
+      
+      for (const { system, result: analysisResult } of analysisResults) {
+        if (analysisResult.success && analysisResult.analysis) {
+          newMultiAnalysis[system] = analysisResult.analysis;
+          hasSuccess = true;
+        }
+      }
+      
+      if (hasSuccess) {
+        setMultiSystemAnalysis(newMultiAnalysis);
         setShowAnalysisReport(true);
+        
+        // 为每个体系分别保存历史记录
+        const systemNames: Record<string, string> = {
+          bazi: '八字',
+          western: '星座',
+          ziwei: '紫微',
+        };
+        const dateStr = userData.date.toISOString().split('T')[0];
+        const genderStr = userData.gender;
+        
+        for (const [sys, text] of Object.entries(newMultiAnalysis)) {
+          if (text) {
+            const title = `【${systemNames[sys]}】${userData.name}-${dateStr}-${genderStr}`;
+            saveAnalysis({
+              title,
+              userData: {
+                name: userData.name,
+                gender: userData.gender,
+                date: dateStr,
+                place: userData.place,
+              },
+              selectedSystems: [sys],
+              analysisType: 'overall',
+              model: 'deepseek',
+              analysis: text,
+              keyYears: result.keyYears,
+            });
+          }
+        }
+        
+        // 刷新历史列表
+        setHistoryList(getAnalysisHistory());
       } else {
         setPreviewError('AI分析失败，请重试');
       }
@@ -357,6 +435,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
     setIsAnalyzing(false);
   };
 
+  // handleAuth 函数已注释，直接使用 .env 中的 API
+  /*
   const handleAuth = () => {
     setAuthError(null);
     
@@ -376,6 +456,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
       }
     }
   };
+  */
 
   // @ts-expect-error - Stub function for backwards compatibility
   const requestAiAnalysis = async () => {
@@ -452,8 +533,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
   */
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 max-w-6xl mx-auto bg-paper text-ink selection:bg-accent selection:text-white">
-      <header className="mb-16 text-center animate-fade-in relative w-full">
+    <div className={`min-h-screen flex flex-col items-center p-4 max-w-6xl mx-auto bg-paper text-ink selection:bg-accent selection:text-white ${step !== 'deepAnalysis' ? 'justify-center' : 'pt-8'}`}>
+      <header className={`text-center animate-fade-in relative w-full ${step === 'deepAnalysis' ? 'mb-6' : 'mb-16'}`}>
         <h1 className="text-4xl font-serif font-bold tracking-tighter mb-2">LIFELINE</h1>
         <p className="text-[10px] font-mono text-ink/40 uppercase tracking-[0.3em]">命运的架构</p>
         
@@ -525,13 +606,31 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                         onClick={() => setViewingHistoryItem(item)}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="font-serif text-sm truncate">{item.userData.name} - {item.userData.gender}</p>
+                          <p className="font-serif text-sm truncate">
+                            {item.title || `${item.userData.name} - ${item.userData.gender === 'male' ? '男' : '女'}`}
+                          </p>
                           <p className="text-xs text-ink/40 font-mono">{formatTimestamp(item.timestamp)}</p>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+            
+            {/* 深度求解入口按钮 */}
+            {historyList.length > 0 && (
+              <div className="p-4 border-t border-ink/10">
+                <button
+                  onClick={() => {
+                    setShowHistory(false);
+                    setStep('deepAnalysis');
+                    setDeepSelectedHistoryIds([]);
+                  }}
+                  className="w-full py-2 bg-ink text-paper font-serif text-sm hover:bg-ink/80 transition-colors"
+                >
+                  深度求解 →
+                </button>
               </div>
             )}
           </div>
@@ -658,8 +757,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   className={`cursor-pointer transition-all duration-300 ${selectedCharts.includes('western') ? 'ring-2 ring-accent ring-offset-4 ring-offset-paper' : 'opacity-70 hover:opacity-100'}`}
                 >
                   <DataCard title="02. 天体坐标 (Western)">
-                  {/* Main Luminaries */}
-                  <div className="grid grid-cols-2 gap-4 mb-4">
+                  {/* Main Luminaries - Sun, Moon, Ascendant */}
+                  <div className="grid grid-cols-3 gap-4 mb-4">
                     <div className="border border-ink/10 p-3 text-center">
                       <div className="text-[10px] text-ink/30 uppercase tracking-widest mb-1">太阳 Sun</div>
                       <div className="text-lg font-bold">{chartData.western.sunSign.split(' ')[0]}</div>
@@ -673,6 +772,13 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                       <div className="text-xs text-ink/50">{chartData.western.moonSign.match(/\(([^)]+)\)/)?.[1]}</div>
                       <div className="text-[10px] text-ink/30 mt-1">{chartData.western.moonAngle}°</div>
                       <div className="text-xs text-ink/60 mt-1">元素: {chartData.western.moonElement}</div>
+                    </div>
+                    <div className="border border-ink/10 p-3 text-center">
+                      <div className="text-[10px] text-ink/30 uppercase tracking-widest mb-1">上升 Ascendant</div>
+                      <div className="text-lg font-bold">{chartData.western.ascendant.split(' ')[0]}</div>
+                      <div className="text-xs text-ink/50">{chartData.western.ascendant.match(/\(([^)]+)\)/)?.[1]}</div>
+                      <div className="text-[10px] text-ink/30 mt-1">{chartData.western.ascendantAngle}°</div>
+                      <div className="text-xs text-ink/60 mt-1">元素: {chartData.western.ascendantElement}</div>
                     </div>
                   </div>
                   
@@ -756,7 +862,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
               <div className="flex flex-col items-center pt-8 gap-4">
                 <button
                   onClick={startAnalysis}
-                  disabled={selectedCharts.length === 0 || isAnalyzing}
+                  disabled={isAnalyzing}
                   className="btn-primary group relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <span className="relative z-10">
@@ -774,20 +880,47 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
             {/* 展开的选项面板 */}
             {showExpandedOptions && (
               <div className="mt-8 space-y-6 animate-slide-up">
-                {/* 体系介绍 */}
+                {/* 体系介绍与选择 */}
                 <div className="border border-accent/30 p-6 bg-accent/5">
-                  <h3 className="text-sm font-serif font-bold mb-4">混合体系分析</h3>
-                  <div className="text-xs text-ink/60 font-mono space-y-2">
+                  <h3 className="text-sm font-serif font-bold mb-4">1. 选择分析体系</h3>
+                  <div className="text-xs text-ink/60 font-mono space-y-2 mb-4">
                     <p><span className="font-bold text-accent">生辰八字</span>：基于出生时间的天干地支，擅长分析性格特质、事业走向、五行喜忌</p>
                     <p><span className="font-bold text-accent">天体星座</span>：基于行星位置与星座关系，擅长解读情感模式、人际关系、心理动机</p>
                     <p><span className="font-bold text-accent">紫微斗数</span>：基于命宫星曜排布，擅长推演人生大运、财富状况、婚姻家庭</p>
-                    <p className="text-[10px] text-ink/40 mt-3">我们将综合运用三种体系，为您提供多维度的命运解读。<a href="#" className="text-accent hover:underline">了解更多 →</a></p>
                   </div>
+                  <p className="text-xs text-ink/40 font-mono mb-3">选择您希望使用的分析体系（可多选）</p>
+                  <div className="flex flex-wrap gap-3">
+                    {[
+                      { id: 'bazi', label: '生辰八字' },
+                      { id: 'western', label: '天体星座' },
+                      { id: 'ziwei', label: '紫微斗数' }
+                    ].map(system => (
+                      <button
+                        key={system.id}
+                        onClick={() => {
+                          const sysId = system.id as 'bazi' | 'western' | 'ziwei';
+                          if (selectedSystems.includes(sysId)) {
+                            setSelectedSystems(selectedSystems.filter(s => s !== sysId));
+                          } else {
+                            setSelectedSystems([...selectedSystems, sysId]);
+                          }
+                        }}
+                        className={`px-4 py-2 text-xs font-mono transition-all ${
+                          selectedSystems.includes(system.id as 'bazi' | 'western' | 'ziwei')
+                            ? 'border-2 border-accent bg-accent text-white'
+                            : 'border border-ink/20 text-ink/60 hover:border-accent'
+                        }`}
+                      >
+                        {system.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-ink/40 mt-3">选择多个体系将分别生成独立的分析报告，为您提供多维度的命运解读</p>
                 </div>
 
-                {/* 1. 关心的方面 */}
+                {/* 2. 关心的方面 */}
                 <div className="border border-accent/30 p-6 bg-accent/5">
-                  <h3 className="text-sm font-serif font-bold mb-4">1. 关心的方面</h3>
+                  <h3 className="text-sm font-serif font-bold mb-4">2. 关心的方面</h3>
                   <p className="text-xs text-ink/40 font-mono mb-3">允许多选，选择越少，结果越清晰垂直</p>
                   <div className="flex flex-wrap gap-3">
                     {[
@@ -820,12 +953,11 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   </div>
                 </div>
 
-                {/* 2. 选择模型 */}
-                <div className="border border-accent/30 p-6 bg-accent/5">
-                  <h3 className="text-sm font-serif font-bold mb-4">2. 选择 AI 模型</h3>
+                {/* 3. 选择模型 - 已注释，直接使用 .env 中的 DeepSeek API */}
+                {/* <div className="border border-accent/30 p-6 bg-accent/5">
+                  <h3 className="text-sm font-serif font-bold mb-4">3. 选择 AI 模型</h3>
                   <p className="text-xs text-ink/40 font-mono mb-4">选择认证方式获取分析能力</p>
                   
-                  {/* 模型选择 */}
                   <div className="border-b border-ink/10 pb-4 mb-4">
                     <div className="flex items-center gap-4">
                       <span className="text-xs font-mono text-ink/60">模型:</span>
@@ -844,7 +976,6 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                     </div>
                   </div>
 
-                  {/* 认证方式 */}
                   <div className="pb-4 mb-4">
                     <div className="flex items-center gap-4 mb-3">
                       <span className="text-xs font-mono text-ink/60">验证方式:</span>
@@ -872,7 +1003,6 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                       </div>
                     </div>
 
-                    {/* 输入区域 */}
                     <div className="flex items-center gap-3">
                       {authMode === 'activation' ? (
                         <input
@@ -910,12 +1040,10 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                       </button>
                     </div>
 
-                    {/* 错误提示 */}
                     {authError && (
                       <p className="mt-2 text-xs text-red-500 font-mono">{authError}</p>
                     )}
 
-                    {/* 提示信息 */}
                     {!isAuthenticated && (
                       <p className="mt-2 text-[10px] text-ink/40 font-mono">
                         {authMode === 'activation' 
@@ -925,56 +1053,150 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                       </p>
                     )}
                   </div>
-                </div>
+                </div> */}
 
                 {/* 【AI深度分析】按钮 */}
                 <div className="flex justify-center pt-4">
                   <button
                     onClick={performAIAnalysis}
-                    disabled={isAnalyzing || !isAuthenticated || selectedAspects.length === 0}
+                    disabled={isAnalyzing || selectedSystems.length === 0}
                     className={`px-8 py-3 text-sm font-mono transition-all ${
-                      isAuthenticated && selectedAspects.length > 0
+                      selectedSystems.length > 0
                         ? 'bg-accent text-white hover:bg-accent/80'
                         : 'bg-ink/20 text-ink/40 cursor-not-allowed'
                     } disabled:opacity-50`}
                   >
-                    {isAnalyzing ? '正在生成AI深度分析...' : '【AI深度分析】'}
+                    {isAnalyzing ? '正在生成AI深度分析...' : 'AI深度分析'}
                   </button>
                 </div>
 
-                {/* 分析报告展示区 */}
-                {showAnalysisReport && aiAnalysis && (
-                  <div className="border border-accent/30 p-6 bg-accent/5 mt-6">
-                    <h3 className="text-sm font-serif font-bold mb-4">AI深度分析报告</h3>
-                    <div className="ai-analysis-content">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          h1: ({children}) => <h1 className="text-2xl font-serif font-bold text-ink mb-4 mt-8 pb-3 border-b-2 border-accent">{children}</h1>,
-                          h2: ({children}) => <h2 className="text-xl font-serif font-bold text-ink mb-4 mt-8 pb-2 border-b border-ink/20">{children}</h2>,
-                          h3: ({children}) => <h3 className="text-lg font-serif font-bold text-ink mb-3 mt-6">{children}</h3>,
-                          h4: ({children}) => <h4 className="text-base font-serif font-semibold text-accent mb-2 mt-5">{children}</h4>,
-                          p: ({children}) => <p className="text-sm font-serif text-ink/80 leading-relaxed mb-4">{children}</p>,
-                          ul: ({children}) => <ul className="list-disc list-inside space-y-2 mb-4 ml-2">{children}</ul>,
-                          ol: ({children}) => <ol className="list-decimal list-inside space-y-2 mb-4 ml-2">{children}</ol>,
-                          li: ({children}) => <li className="text-sm font-serif text-ink/80 leading-relaxed">{children}</li>,
-                          strong: ({children}) => <strong className="font-bold text-ink">{children}</strong>,
-                          blockquote: ({children}) => <blockquote className="border-l-4 border-accent bg-accent/5 pl-4 py-3 my-4 italic text-ink/70">{children}</blockquote>,
-                          hr: () => <hr className="my-8 border-ink/10" />,
-                          table: ({children}) => <div className="overflow-x-auto my-6"><table className="min-w-full border-collapse border border-ink/20 text-sm font-serif">{children}</table></div>,
-                          thead: ({children}) => <thead className="bg-ink/5">{children}</thead>,
-                          tbody: ({children}) => <tbody>{children}</tbody>,
-                          tr: ({children}) => <tr className="border-b border-ink/10 hover:bg-ink/5 transition-colors">{children}</tr>,
-                          th: ({children}) => <th className="border-r border-ink/10 px-4 py-2 text-left font-bold text-ink/80 last:border-r-0">{children}</th>,
-                          td: ({children}) => <td className="border-r border-ink/10 px-4 py-2 text-ink/70 last:border-r-0">{children}</td>,
-                        }}
-                      >{aiAnalysis}</ReactMarkdown>
-                    </div>
+                {/* 分析报告展示区 - 多体系分栏显示 */}
+                {showAnalysisReport && Object.keys(multiSystemAnalysis).length > 0 && (
+                  <div className="mt-8 space-y-8">
+                    <h3 className="text-lg font-serif font-bold text-center text-ink">AI深度分析报告</h3>
+                    
+                    {/* 八字分析 */}
+                    {multiSystemAnalysis.bazi && (
+                      <div className="border border-accent/30 p-6 bg-accent/5">
+                        <div className="mb-4">
+                          <h4 className="text-base font-serif font-bold text-accent">生辰八字分析</h4>
+                        </div>
+                        <div className="ai-analysis-content">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              h1: ({children}) => <h1 className="text-xl font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b-2 border-accent">{children}</h1>,
+                              h2: ({children}) => <h2 className="text-lg font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b border-ink/20">{children}</h2>,
+                              h3: ({children}) => <h3 className="text-base font-serif font-bold text-ink mb-2 mt-4">{children}</h3>,
+                              h4: ({children}) => <h4 className="text-sm font-serif font-semibold text-accent mb-2 mt-3">{children}</h4>,
+                              p: ({children}) => <p className="text-sm font-serif text-ink/80 leading-relaxed mb-3">{children}</p>,
+                              ul: ({children}) => <ul className="list-disc list-inside space-y-1 mb-3 ml-2">{children}</ul>,
+                              ol: ({children}) => <ol className="list-decimal list-inside space-y-1 mb-3 ml-2">{children}</ol>,
+                              li: ({children}) => <li className="text-sm font-serif text-ink/80 leading-relaxed">{children}</li>,
+                              strong: ({children}) => <strong className="font-bold text-ink">{children}</strong>,
+                              blockquote: ({children}) => <blockquote className="border-l-4 border-accent bg-accent/5 pl-4 py-2 my-3 italic text-ink/70">{children}</blockquote>,
+                              hr: () => <hr className="my-6 border-ink/10" />,
+                            }}
+                          >{multiSystemAnalysis.bazi}</ReactMarkdown>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* 天体星座分析 */}
+                    {multiSystemAnalysis.western && (
+                      <div className="border border-accent/30 p-6 bg-accent/5">
+                        <div className="mb-4">
+                          <h4 className="text-base font-serif font-bold text-accent">天体星座分析</h4>
+                        </div>
+                        <div className="ai-analysis-content">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              h1: ({children}) => <h1 className="text-xl font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b-2 border-accent">{children}</h1>,
+                              h2: ({children}) => <h2 className="text-lg font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b border-ink/20">{children}</h2>,
+                              h3: ({children}) => <h3 className="text-base font-serif font-bold text-ink mb-2 mt-4">{children}</h3>,
+                              h4: ({children}) => <h4 className="text-sm font-serif font-semibold text-accent mb-2 mt-3">{children}</h4>,
+                              p: ({children}) => <p className="text-sm font-serif text-ink/80 leading-relaxed mb-3">{children}</p>,
+                              ul: ({children}) => <ul className="list-disc list-inside space-y-1 mb-3 ml-2">{children}</ul>,
+                              ol: ({children}) => <ol className="list-decimal list-inside space-y-1 mb-3 ml-2">{children}</ol>,
+                              li: ({children}) => <li className="text-sm font-serif text-ink/80 leading-relaxed">{children}</li>,
+                              strong: ({children}) => <strong className="font-bold text-ink">{children}</strong>,
+                              blockquote: ({children}) => <blockquote className="border-l-4 border-accent bg-accent/5 pl-4 py-2 my-3 italic text-ink/70">{children}</blockquote>,
+                              hr: () => <hr className="my-6 border-ink/10" />,
+                            }}
+                          >{multiSystemAnalysis.western}</ReactMarkdown>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* 紫微斗数分析 */}
+                    {multiSystemAnalysis.ziwei && (
+                      <div className="border border-accent/30 p-6 bg-accent/5">
+                        <div className="mb-4">
+                          <h4 className="text-base font-serif font-bold text-accent">紫微斗数分析</h4>
+                        </div>
+                        <div className="ai-analysis-content">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              h1: ({children}) => <h1 className="text-xl font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b-2 border-accent">{children}</h1>,
+                              h2: ({children}) => <h2 className="text-lg font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b border-ink/20">{children}</h2>,
+                              h3: ({children}) => <h3 className="text-base font-serif font-bold text-ink mb-2 mt-4">{children}</h3>,
+                              h4: ({children}) => <h4 className="text-sm font-serif font-semibold text-accent mb-2 mt-3">{children}</h4>,
+                              p: ({children}) => <p className="text-sm font-serif text-ink/80 leading-relaxed mb-3">{children}</p>,
+                              ul: ({children}) => <ul className="list-disc list-inside space-y-1 mb-3 ml-2">{children}</ul>,
+                              ol: ({children}) => <ol className="list-decimal list-inside space-y-1 mb-3 ml-2">{children}</ol>,
+                              li: ({children}) => <li className="text-sm font-serif text-ink/80 leading-relaxed">{children}</li>,
+                              strong: ({children}) => <strong className="font-bold text-ink">{children}</strong>,
+                              blockquote: ({children}) => <blockquote className="border-l-4 border-accent bg-accent/5 pl-4 py-2 my-3 italic text-ink/70">{children}</blockquote>,
+                              hr: () => <hr className="my-6 border-ink/10" />,
+                            }}
+                          >{multiSystemAnalysis.ziwei}</ReactMarkdown>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 深度求解按钮 - 在生成分析报告后显示 */}
+                {showAnalysisReport && Object.keys(multiSystemAnalysis).length > 0 && (
+                  <div className="mt-8 text-center">
+                    <button
+                      onClick={() => {
+                        setStep('deepAnalysis');
+                        setDeepSelectedHistoryIds([]);
+                      }}
+                      className="px-8 py-3 bg-ink text-paper font-serif text-sm hover:bg-ink/80 transition-colors"
+                    >
+                      深度求解 →
+                    </button>
                   </div>
                 )}
               </div>
             )}
           </div>
+        )}
+
+        {/* 深度分析页面 - 使用 Portal 渲染到 body 以实现全屏 */}
+        {step === 'deepAnalysis' && createPortal(
+          <DeepAnalysisPage
+            historyList={historyList}
+            selectedIds={deepSelectedHistoryIds}
+            onSelectIds={setDeepSelectedHistoryIds}
+            chatMessages={deepChatMessages}
+            onChatMessagesChange={setDeepChatMessages}
+            chatInput={deepChatInput}
+            onChatInputChange={setDeepChatInput}
+            isLoading={isDeepChatLoading}
+            onSetLoading={setIsDeepChatLoading}
+            onBack={() => setStep('charts')}
+            onNewProfile={() => setStep('input')}
+            aiModel="deepseek"
+            apiKey={undefined}
+            userData={userData}
+            chartData={chartData}
+          />,
+          document.body
         )}
       </main>
       

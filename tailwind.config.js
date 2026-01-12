@@ -110,6 +110,20 @@ export default {
           },
         },
       },
+      animation: {
+        'fade-in': 'fadeIn 0.2s ease-out',
+        'fade-out': 'fadeOut 0.2s ease-in',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0', transform: 'translate(-50%, 10px)' },
+          '100%': { opacity: '1', transform: 'translate(-50%, 0)' },
+        },
+        fadeOut: {
+          '0%': { opacity: '1' },
+          '100%': { opacity: '0' },
+        },
+      },
     },
   },
   plugins: [

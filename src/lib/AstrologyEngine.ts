@@ -80,6 +80,8 @@ export interface WesternChartData {
   sunSign: string;
   moonSign: string;
   ascendant: string;
+  ascendantAngle?: number;
+  ascendantElement?: string;
   planets: { name: string; sign: string; angle: number }[];
   sunAngle: number;
   moonAngle: number;
@@ -215,8 +217,8 @@ export class AstrologyEngine {
    */
   static generateBaseCharts(
     date: Date,
-    _lat: number = 39.9,
-    _lng: number = 116.4,
+    lat: number = 39.9,
+    lng: number = 116.4,
     gender: '男' | '女' = '女'
   ): BaseChartData {
     const y = date.getFullYear();
@@ -332,12 +334,50 @@ export class AstrologyEngine {
     const moonSign = getZodiacSign(moonEcliptic.elon);
 
     // Calculate Ascendant (Rising Sign)
-    // This requires finding the point of the ecliptic that is rising at the eastern horizon.
-    // A simplified approximation for MVP:
-    // We can use a library function if available, or approximate.
-    // astronomy-engine doesn't have a direct "getAscendant" but we can calculate the Sidereal Time.
-    // For MVP, let's calculate a few major planets to show "Engineering" style data.
+    // Using the formula: ASC = ARMC + 90°, then find the ecliptic longitude
+    // Simplified calculation based on Local Sidereal Time and latitude
+    const calculateAscendant = (date: Date, lat: number, lng: number): number => {
+      // Calculate Julian Day
+      const jd = date.getTime() / 86400000 + 2440587.5;
+      
+      // Calculate centuries from J2000.0
+      const T = (jd - 2451545.0) / 36525;
+      
+      // Greenwich Mean Sidereal Time in degrees
+      let GMST = 280.46061837 + 360.98564736629 * (jd - 2451545.0) + 0.000387933 * T * T;
+      GMST = GMST % 360;
+      if (GMST < 0) GMST += 360;
+      
+      // Local Sidereal Time
+      let LST = GMST + lng;
+      LST = LST % 360;
+      if (LST < 0) LST += 360;
+      
+      // RAMC (Right Ascension of Medium Coeli) = LST
+      const RAMC = LST * Math.PI / 180;
+      
+      // Obliquity of the ecliptic
+      const obliquity = (23.439291 - 0.0130042 * T) * Math.PI / 180;
+      
+      // Latitude in radians
+      const latRad = lat * Math.PI / 180;
+      
+      // Calculate Ascendant
+      // ASC = atan2(cos(RAMC), -(sin(RAMC) * cos(obliquity) + tan(lat) * sin(obliquity)))
+      const y = Math.cos(RAMC);
+      const x = -(Math.sin(RAMC) * Math.cos(obliquity) + Math.tan(latRad) * Math.sin(obliquity));
+      let asc = Math.atan2(y, x) * 180 / Math.PI;
+      
+      // Convert to 0-360 range
+      asc = asc % 360;
+      if (asc < 0) asc += 360;
+      
+      return asc;
+    };
     
+    const ascendantAngle = calculateAscendant(date, lat, lng);
+    const ascendantSign = getZodiacSign(ascendantAngle);
+
     const planets = [Body.Mercury, Body.Venus, Body.Mars, Body.Jupiter, Body.Saturn].map(body => {
         const vec = GeoVector(body, date, true);
         const ec = Ecliptic(vec);
@@ -348,14 +388,14 @@ export class AstrologyEngine {
         };
     });
 
-    // Rough Ascendant Calculation (Sidereal Time based) - Placeholder for high precision lib
-    // For now, we will leave Ascendant as "Calculated" or use a simplified lookup if needed.
-    // Let's just return Sun/Moon/Planets which is enough for the "Data" look.
+    // Rough Ascendant Calculation (Sidereal Time based) - Now implemented above
     
     const western: WesternChartData = {
       sunSign,
       moonSign,
-      ascendant: "Calculating...", // To be implemented with precise sidereal time
+      ascendant: ascendantSign,
+      ascendantAngle: Math.round(ascendantAngle * 100) / 100,
+      ascendantElement: getZodiacElement(ascendantSign),
       planets,
       sunAngle: Math.round(sunEcliptic.elon * 100) / 100,
       moonAngle: Math.round(moonEcliptic.elon * 100) / 100,

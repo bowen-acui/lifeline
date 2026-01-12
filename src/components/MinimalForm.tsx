@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { lookupCity, getCityTimezone } from '../lib/CityLookup';
-import { FALLBACK_DATA, getFallbackRegions, getFallbackCities, searchCities, GeoCity } from '../lib/GeoService';
+import { FALLBACK_DATA, getFallbackRegions, getFallbackCities, searchCities, getCityCoordinates, getCityCoordinatesFromFallback, GeoCity, COUNTRY_CODES } from '../lib/GeoService';
 
 interface MinimalFormProps {
     onSubmit: (data: { date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string }) => void;
@@ -30,6 +30,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<GeoCity[]>([]);
     const [isSearching, setIsSearching] = useState(false);
+    const [searchError, setSearchError] = useState<string>('');
 
     const yearRef = useRef<HTMLInputElement>(null);
     const monthRef = useRef<HTMLInputElement>(null);
@@ -108,16 +109,44 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
         setCities(cityList);
     };
 
-    const handleCityChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const handleCityChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
         const city = e.target.value;
         setBirthPlace(city);
+        setLocationStatus({ valid: false, msg: '正在查询坐标...' });
         
+        // 1. 先尝试从 city-timezones 查找
         const coords = lookupCity(city);
         if (coords) {
              const tz = getCityTimezone(city);
              setLocationStatus({ valid: true, msg: `已定位: ${coords.lat.toFixed(2)}, ${coords.lng.toFixed(2)} (${tz})` });
-        } else {
-             setLocationStatus({ valid: true, msg: `已选择: ${city}` });
+             return;
+        }
+        
+        // 2. 尝试从备用坐标数据库查找
+        const fallbackCoords = getCityCoordinatesFromFallback(city);
+        if (fallbackCoords) {
+            setLocationStatus({ 
+                valid: true, 
+                msg: `已定位: ${fallbackCoords.lat.toFixed(2)}, ${fallbackCoords.lng.toFixed(2)} (${fallbackCoords.timezone})` 
+            });
+            return;
+        }
+        
+        // 3. 尝试从 GeoNames API 查询
+        try {
+            const countryCode = COUNTRY_CODES[selectedCountry];
+            const result = await getCityCoordinates(city, countryCode);
+            if (result) {
+                setLocationStatus({ 
+                    valid: true, 
+                    msg: `已定位: ${result.lat.toFixed(2)}, ${result.lng.toFixed(2)} (${result.timezone})` 
+                });
+            } else {
+                setLocationStatus({ valid: false, msg: `未找到 ${city} 的坐标信息` });
+            }
+        } catch (error) {
+            console.error('Failed to get city coordinates:', error);
+            setLocationStatus({ valid: false, msg: `查询失败: ${city}` });
         }
     };
 
@@ -125,17 +154,30 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
     const handleSearch = async () => {
         if (!searchQuery.trim()) return;
         setIsSearching(true);
+        setSearchError('');
+        setSearchResults([]);
         try {
             const results = await searchCities(searchQuery);
-            setSearchResults(results);
+            if (results.length === 0) {
+                setSearchError('未找到匹配的城市，请尝试其他关键词');
+            } else {
+                setSearchResults(results);
+            }
         } catch (error) {
             console.error('Search failed:', error);
+            setSearchError('搜索失败，请检查网络连接或稍后重试');
         }
         setIsSearching(false);
     };
 
+    // 选中的城市信息（用于显示）
+    const [selectedCityDisplay, setSelectedCityDisplay] = useState<string>('');
+
     const handleSelectSearchResult = (city: GeoCity) => {
         setBirthPlace(city.name);
+        // 显示选中的城市信息
+        const displayText = `${city.name} (${city.adminName1}, ${city.countryName})`;
+        setSelectedCityDisplay(displayText);
         setLocationStatus({ 
             valid: true, 
             msg: `已定位: ${city.lat.toFixed(2)}, ${city.lng.toFixed(2)} (${city.timezone || 'UTC'})` 
@@ -242,7 +284,11 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                         <label htmlFor="birthPlace" className="block text-xs font-serif text-ink/40 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生地点 (Coordinates)</label>
                         <button 
                             type="button"
-                            onClick={() => setUseSearchMode(!useSearchMode)}
+                            onClick={() => {
+                                setUseSearchMode(!useSearchMode);
+                                setSearchError('');
+                                setSearchResults([]);
+                            }}
                             className="text-xs text-accent hover:underline font-mono"
                         >
                             {useSearchMode ? '← 返回选择' : '搜索城市 →'}
@@ -252,11 +298,20 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                     {useSearchMode ? (
                         // 搜索模式
                         <div className="space-y-2">
+                            {/* 选中的城市显示 */}
+                            {selectedCityDisplay && (
+                                <div className="font-serif text-lg border-b border-ink/20 py-2">
+                                    {selectedCityDisplay}
+                                </div>
+                            )}
                             <div className="flex gap-2">
                                 <input
                                     type="text"
                                     value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    onChange={(e) => {
+                                        setSearchQuery(e.target.value);
+                                        if (searchError) setSearchError('');
+                                    }}
                                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearch())}
                                     placeholder="输入城市名搜索（支持中英文）"
                                     className="minimal-input flex-1"
@@ -270,6 +325,11 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                                     {isSearching ? '搜索中...' : '搜索'}
                                 </button>
                             </div>
+                            {searchError && (
+                                <div className="text-xs text-amber-600 font-mono">
+                                    {searchError}
+                                </div>
+                            )}
                             {searchResults.length > 0 && (
                                 <div className="border border-ink/10 max-h-48 overflow-y-auto">
                                     {searchResults.map((city, idx) => (

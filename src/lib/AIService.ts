@@ -118,7 +118,7 @@ async function callOpenAI(params: AIRequestParams): Promise<AIResponse> {
 
 /**
  * 统一的 AI 调用接口
- * 优先使用后端 API，如果失败则尝试前端直接调用（需要用户提供 API Key）
+ * 优先使用用户提供的 API Key，其次使用环境变量，最后尝试后端 API
  */
 export async function callAIService(params: {
   systemPrompt: string;
@@ -130,14 +130,17 @@ export async function callAIService(params: {
 }): Promise<AIResponse> {
   const { systemPrompt, userPrompt, model, apiKey, userData, chartData } = params;
   
-  // 如果用户提供了 API Key，直接从前端调用
-  if (apiKey) {
-    console.log(`Using direct ${model} API call with user-provided key`);
+  // 获取可用的 API Key：用户提供的 > 环境变量
+  const effectiveApiKey = apiKey || (model === 'deepseek' ? import.meta.env.VITE_DEEPSEEK_API_KEY : import.meta.env.VITE_OPENAI_API_KEY);
+  
+  // 如果有可用的 API Key，直接从前端调用
+  if (effectiveApiKey) {
+    console.log(`Using direct ${model} API call`);
     
     if (model === 'deepseek') {
-      return callDeepSeek({ systemPrompt, userPrompt, model, apiKey });
+      return callDeepSeek({ systemPrompt, userPrompt, model, apiKey: effectiveApiKey });
     } else {
-      return callOpenAI({ systemPrompt, userPrompt, model, apiKey });
+      return callOpenAI({ systemPrompt, userPrompt, model, apiKey: effectiveApiKey });
     }
   }
   

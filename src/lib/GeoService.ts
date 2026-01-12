@@ -5,7 +5,7 @@
  */
 
 // GeoNames 免费 API (需要注册账号，这里使用 demo 账号测试)
-const GEONAMES_USERNAME = 'demo'; // 生产环境应替换为自己的账号
+const GEONAMES_USERNAME = 'susu7729'; // 生产环境应替换为自己的账号
 
 export interface GeoCity {
   name: string;
@@ -116,6 +116,7 @@ export async function fetchCities(regionGeonameId: number): Promise<GeoCity[]> {
 
 /**
  * 搜索城市（模糊搜索）
+ * 先尝试 GeoNames API，失败则从本地数据库搜索
  */
 export async function searchCities(query: string, countryCode?: string): Promise<GeoCity[]> {
   try {
@@ -128,7 +129,14 @@ export async function searchCities(query: string, countryCode?: string): Promise
     if (!response.ok) throw new Error('Failed to search cities');
     const data = await response.json();
     
-    if (data.geonames) {
+    // 检查是否有错误状态（如账号未启用、超限额等）
+    if (data.status) {
+      console.warn('GeoNames API error:', data.status.message);
+      // API 失败，使用本地搜索
+      return searchCitiesLocally(query);
+    }
+    
+    if (data.geonames && data.geonames.length > 0) {
       return data.geonames.map((item: any) => ({
         name: item.name,
         adminName1: item.adminName1 || '',
@@ -138,10 +146,106 @@ export async function searchCities(query: string, countryCode?: string): Promise
         timezone: item.timezone?.timeZoneId || 'UTC',
       }));
     }
-    return [];
+    
+    // API 返回空结果，尝试本地搜索
+    return searchCitiesLocally(query);
   } catch (error) {
     console.error('searchCities error:', error);
-    return [];
+    // API 失败，使用本地搜索
+    return searchCitiesLocally(query);
+  }
+}
+
+/**
+ * 从本地数据库搜索城市
+ */
+function searchCitiesLocally(query: string): GeoCity[] {
+  const normalizedQuery = query.toLowerCase().trim();
+  const results: GeoCity[] = [];
+  
+  // 在 CITY_COORDINATES 中搜索
+  for (const [cityName, coords] of Object.entries(CITY_COORDINATES)) {
+    if (cityName.toLowerCase().includes(normalizedQuery) || 
+        normalizedQuery.includes(cityName.toLowerCase())) {
+      results.push({
+        name: cityName,
+        adminName1: '',
+        countryName: '本地数据',
+        lat: coords.lat,
+        lng: coords.lng,
+        timezone: coords.timezone,
+      });
+    }
+  }
+  
+  // 在 FALLBACK_DATA 中搜索
+  for (const [country, regions] of Object.entries(FALLBACK_DATA)) {
+    for (const [region, cities] of Object.entries(regions)) {
+      for (const city of cities) {
+        if (city.toLowerCase().includes(normalizedQuery) || 
+            normalizedQuery.includes(city.toLowerCase())) {
+          // 检查是否已经在结果中
+          if (!results.some(r => r.name === city)) {
+            // 尝试从 CITY_COORDINATES 获取坐标
+            const coords = CITY_COORDINATES[city];
+            if (coords) {
+              results.push({
+                name: city,
+                adminName1: region,
+                countryName: country,
+                lat: coords.lat,
+                lng: coords.lng,
+                timezone: coords.timezone,
+              });
+            } else {
+              // 没有坐标数据，但仍然返回城市名
+              results.push({
+                name: city,
+                adminName1: region,
+                countryName: country,
+                lat: 0,
+                lng: 0,
+                timezone: 'UTC',
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  return results.slice(0, 10); // 限制返回 10 个结果
+}
+
+/**
+ * 根据城市名和国家查询城市坐标和时区
+ */
+export async function getCityCoordinates(cityName: string, countryCode?: string): Promise<GeoCity | null> {
+  try {
+    let url = `https://secure.geonames.org/searchJSON?q=${encodeURIComponent(cityName)}&maxRows=1&featureClass=P&username=${GEONAMES_USERNAME}`;
+    if (countryCode) {
+      url += `&country=${countryCode}`;
+    }
+    
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to search city');
+    const data = await response.json();
+    
+    if (data.geonames && data.geonames.length > 0) {
+      const item = data.geonames[0];
+      return {
+        name: item.name,
+        adminName1: item.adminName1 || '',
+        countryName: item.countryName || '',
+        lat: parseFloat(item.lat),
+        lng: parseFloat(item.lng),
+        timezone: item.timezone?.timeZoneId || 'UTC',
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('getCityCoordinates error:', error);
+    return null;
   }
 }
 
@@ -325,6 +429,55 @@ export const FALLBACK_DATA: Record<string, Record<string, string[]>> = {
 };
 
 /**
+ * 城市坐标备用数据库
+ * 当 GeoNames API 无法查询或查询失败时使用
+ */
+export const CITY_COORDINATES: Record<string, { lat: number; lng: number; timezone: string }> = {
+  // 泰国
+  '苏梅岛': { lat: 9.5357, lng: 100.0629, timezone: 'Asia/Bangkok' },
+  '普吉': { lat: 7.8804, lng: 98.3923, timezone: 'Asia/Bangkok' },
+  '甲米': { lat: 8.0863, lng: 98.9063, timezone: 'Asia/Bangkok' },
+  '曼谷': { lat: 13.7563, lng: 100.5018, timezone: 'Asia/Bangkok' },
+  '芭提雅': { lat: 12.9236, lng: 100.8825, timezone: 'Asia/Bangkok' },
+  '清迈': { lat: 18.7883, lng: 98.9853, timezone: 'Asia/Bangkok' },
+  '清莱': { lat: 19.9105, lng: 99.8406, timezone: 'Asia/Bangkok' },
+  
+  // 日本
+  '东京': { lat: 35.6762, lng: 139.6503, timezone: 'Asia/Tokyo' },
+  '大阪': { lat: 34.6937, lng: 135.5023, timezone: 'Asia/Tokyo' },
+  '京都': { lat: 35.0116, lng: 135.7681, timezone: 'Asia/Tokyo' },
+  '札幌': { lat: 43.0642, lng: 141.3469, timezone: 'Asia/Tokyo' },
+  '福冈': { lat: 33.5904, lng: 130.4017, timezone: 'Asia/Tokyo' },
+  '那霸': { lat: 26.2124, lng: 127.6809, timezone: 'Asia/Tokyo' },
+  
+  // 中国
+  '北京': { lat: 39.9042, lng: 116.4074, timezone: 'Asia/Shanghai' },
+  '上海': { lat: 31.2304, lng: 121.4737, timezone: 'Asia/Shanghai' },
+  '天津': { lat: 39.3434, lng: 117.3616, timezone: 'Asia/Shanghai' },
+  '重庆': { lat: 29.4316, lng: 106.9123, timezone: 'Asia/Shanghai' },
+  '广州': { lat: 23.1291, lng: 113.2644, timezone: 'Asia/Shanghai' },
+  '深圳': { lat: 22.5431, lng: 114.0579, timezone: 'Asia/Shanghai' },
+  '成都': { lat: 30.5728, lng: 104.0668, timezone: 'Asia/Shanghai' },
+  '杭州': { lat: 30.2741, lng: 120.1551, timezone: 'Asia/Shanghai' },
+  '武汉': { lat: 30.5928, lng: 114.3055, timezone: 'Asia/Shanghai' },
+  '西安': { lat: 34.3416, lng: 108.9398, timezone: 'Asia/Shanghai' },
+  '南京': { lat: 32.0603, lng: 118.7969, timezone: 'Asia/Shanghai' },
+  '苏州': { lat: 31.2989, lng: 120.5853, timezone: 'Asia/Shanghai' },
+  '东莞': { lat: 23.0209, lng: 113.7518, timezone: 'Asia/Shanghai' },
+  '佛山': { lat: 23.0218, lng: 113.1219, timezone: 'Asia/Shanghai' },
+  '长沙': { lat: 28.2282, lng: 112.9388, timezone: 'Asia/Shanghai' },
+  '郑州': { lat: 34.7466, lng: 113.6253, timezone: 'Asia/Shanghai' },
+  '济南': { lat: 36.6512, lng: 117.1208, timezone: 'Asia/Shanghai' },
+  '青岛': { lat: 36.0671, lng: 120.3826, timezone: 'Asia/Shanghai' },
+  '厦门': { lat: 24.4798, lng: 118.0894, timezone: 'Asia/Shanghai' },
+  '昆明': { lat: 25.0406, lng: 102.7123, timezone: 'Asia/Shanghai' },
+  '香港': { lat: 22.3193, lng: 114.1694, timezone: 'Asia/Hong_Kong' },
+  '澳门': { lat: 22.1987, lng: 113.5439, timezone: 'Asia/Macau' },
+  '台北': { lat: 25.0330, lng: 121.5654, timezone: 'Asia/Taipei' },
+  '高雄': { lat: 22.6273, lng: 120.3014, timezone: 'Asia/Taipei' },
+};
+
+/**
  * 获取内置备用数据的省份列表
  */
 export function getFallbackRegions(country: string): string[] {
@@ -336,4 +489,11 @@ export function getFallbackRegions(country: string): string[] {
  */
 export function getFallbackCities(country: string, region: string): string[] {
   return FALLBACK_DATA[country]?.[region] || [];
+}
+
+/**
+ * 从备用数据库获取城市坐标
+ */
+export function getCityCoordinatesFromFallback(cityName: string): { lat: number; lng: number; timezone: string } | null {
+  return CITY_COORDINATES[cityName] || null;
 }

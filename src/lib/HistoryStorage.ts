@@ -6,6 +6,7 @@
 export interface AnalysisHistoryItem {
   id: string;
   timestamp: number;
+  title?: string; // 标题，格式：【体系】姓名-生日-性别
   userData: {
     name: string;
     gender: string;
