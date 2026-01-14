@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LifeLine 管理后台</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    
+    .container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      padding: 40px;
+      max-width: 500px;
+      width: 100%;
+    }
+    
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+    
+    .subtitle {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 30px;
+    }
+    
+    .form-group {
+      margin-bottom: 20px;
+    }
+    
+    label {
+      display: block;
+      color: #555;
+      font-weight: 500;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    
+    input {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 15px;
+      transition: all 0.3s;
+    }
+    
+    input:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    button {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    }
+    
+    button:active {
+      transform: translateY(0);
+    }
+    
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    #result {
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: 'Courier New', monospace;
+      white-space: pre-wrap;
+      display: none;
+    }
+    
+    #result.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+      display: block;
+    }
+    
+    #result.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+      display: block;
+    }
+    
+    .hint {
+      margin-top: 30px;
+      padding: 16px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #666;
+    }
+    
+    .hint strong {
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔧 LifeLine 管理后台</h1>
+    <p class="subtitle">为用户手动添加分析次数</p>
+    
+    <form id="quotaForm">
+      <div class="form-group">
+        <label for="email">用户邮箱</label>
+        <input 
+          type="email" 
+          id="email" 
+          placeholder="user@example.com"
+          required
+        >
+      </div>
+      
+      <div class="form-group">
+        <label for="count">增加次数</label>
+        <input 
+          type="number" 
+          id="count" 
+          placeholder="19"
+          value="19"
+          min="1"
+          required
+        >
+      </div>
+      
+      <div class="form-group">
+        <label for="token">管理员Token</label>
+        <input 
+          type="password" 
+          id="token" 
+          placeholder="输入ADMIN_TOKEN"
+          required
+        >
+      </div>
+      
+      <div class="form-group">
+        <label for="apiUrl">API地址</label>
+        <input 
+          type="text" 
+          id="apiUrl" 
+          placeholder="https://lifeline-api.fly.dev"
+          value="https://lifeline-api.fly.dev"
+          required
+        >
+      </div>
+      
+      <button type="submit" id="submitBtn">
+        提交
+      </button>
+    </form>
+    
+    <div id="result"></div>
+    
+    <div class="hint">
+      <strong>使用说明：</strong><br>
+      1. 输入需要增加次数的用户邮箱<br>
+      2. 输入增加的次数（默认19次）<br>
+      3. 输入管理员Token（在服务器环境变量中设置的ADMIN_TOKEN）<br>
+      4. 点击提交，用户会立即获得额外次数
+    </div>
+  </div>
+  
+  <script>
+    const form = document.getElementById('quotaForm');
+    const resultDiv = document.getElementById('result');
+    const submitBtn = document.getElementById('submitBtn');
+    
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const email = document.getElementById('email').value;
+      const addCount = parseInt(document.getElementById('count').value);
+      const adminToken = document.getElementById('token').value;
+      const apiUrl = document.getElementById('apiUrl').value.replace(/\/$/, '');
+      
+      // 重置结果显示
+      resultDiv.className = '';
+      resultDiv.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.textContent = '处理中...';
+      
+      try {
+        const response = await fetch(`${apiUrl}/api/admin/add-quota`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userEmail: email,
+            addCount: addCount,
+            adminToken: adminToken
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+          resultDiv.className = 'success';
+          resultDiv.textContent = `✅ 成功！\n\n用户：${email}\n新的总次数：${data.newTotal}`;
+        } else {
+          resultDiv.className = 'error';
+          resultDiv.textContent = `❌ 失败\n\n${data.error || '未知错误'}`;
+        }
+      } catch (error) {
+        resultDiv.className = 'error';
+        resultDiv.textContent = `❌ 请求失败\n\n${error.message}\n\n请检查API地址是否正确`;
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '提交';
+      }
+    });
+  </script>
+</body>
+</html>

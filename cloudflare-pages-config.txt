@@ -1,0 +1,10 @@
+# Build command for Cloudflare Pages
+npm run build
+
+# Build output directory (dist/)
+# Cloudflare Pages will serve files from this directory
+
+# Environment Variables to set in Cloudflare Pages dashboard:
+# VITE_SUPABASE_URL=https://your-project.supabase.co
+# VITE_SUPABASE_ANON_KEY=your-anon-key
+# VITE_API_URL=https://your-backend-server.fly.dev

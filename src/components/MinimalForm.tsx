@@ -219,13 +219,13 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
         });
     };
 
-    const inputBaseClass = "bg-transparent border-b border-ink/20 py-2 px-0 focus:outline-none focus:border-accent transition-colors font-mono text-lg rounded-none text-center";
+    const inputBaseClass = "bg-transparent border-b-2 border-ink/20 py-2 px-0 focus:outline-none focus:border-accent transition-all font-mono text-lg rounded-none text-center hover:border-ink/30";
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-12 py-8">
+        <form onSubmit={handleSubmit} className="space-y-12 py-8 px-6">
             <div className="space-y-8">
                 <div className="group">
-                    <label className="block text-xs font-serif text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生时间 (Time of Origin)</label>
+                    <label className="block text-xs font-serif text-ink/40 mb-3 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生时间 (Time of Origin)</label>
                     <div className="flex flex-wrap gap-2 items-center">
                         <input
                             ref={yearRef}
@@ -280,7 +280,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                 </div>
                 
                 <div className="group">
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center justify-between mb-3">
                         <label htmlFor="birthPlace" className="block text-xs font-serif text-ink/40 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生地点 (Coordinates)</label>
                         <button 
                             type="button"
@@ -289,7 +289,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                                 setSearchError('');
                                 setSearchResults([]);
                             }}
-                            className="text-xs text-accent hover:underline font-mono"
+                            className="text-xs text-accent hover:text-accent/80 font-mono px-2 py-1 bg-accent/5 hover:bg-accent/10 transition-all"
                         >
                             {useSearchMode ? '← 返回选择' : '搜索城市 →'}
                         </button>
@@ -300,7 +300,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                         <div className="space-y-2">
                             {/* 选中的城市显示 */}
                             {selectedCityDisplay && (
-                                <div className="font-serif text-lg border-b border-ink/20 py-2">
+                                <div className="font-serif text-lg border-b-2 border-ink/20 py-2 bg-white/60">
                                     {selectedCityDisplay}
                                 </div>
                             )}
@@ -320,7 +320,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                                     type="button"
                                     onClick={handleSearch}
                                     disabled={isSearching}
-                                    className="px-4 py-2 border border-ink/20 text-xs font-mono hover:border-accent transition-colors disabled:opacity-50"
+                                    className="px-4 py-2 bg-paper border border-ink/20 text-xs font-mono hover:border-accent transition-all disabled:opacity-50"
                                 >
                                     {isSearching ? '搜索中...' : '搜索'}
                                 </button>
@@ -331,7 +331,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                                 </div>
                             )}
                             {searchResults.length > 0 && (
-                                <div className="border border-ink/10 max-h-48 overflow-y-auto">
+                                <div className="bg-paper border border-ink/10 max-h-48 overflow-y-auto">
                                     {searchResults.map((city, idx) => (
                                         <button
                                             key={idx}
@@ -388,7 +388,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                     )}
                     
                     {locationStatus && (
-                        <div className={`text-xs mt-2 font-mono ${locationStatus.valid ? 'text-green-600' : 'text-amber-600'}`}>
+                        <div className={`text-xs mt-2 font-mono px-2 py-1 rounded ${locationStatus.valid ? 'text-green-600 bg-green-50' : 'text-amber-600 bg-amber-50'}`}>
                             {locationStatus.msg}
                         </div>
                     )}

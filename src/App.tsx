@@ -11,18 +11,19 @@ import { prepareAIAnalysisContext } from './lib/ScoreGenerator';
 import { generatePreviewAnalysis } from './lib/PreviewAnalysisService';
 import { getCoordinates } from './lib/CityLookup';
 import { buildAnalysisPrompt } from './lib/AIPrompts';
-import { callAIService } from './lib/AIService';
 import { 
   getAnalysisHistory, 
   saveAnalysis,
   formatTimestamp,
   type AnalysisHistoryItem 
 } from './lib/HistoryStorage';
+import { AuthModal, UserInfo, useAuth } from './components/Auth';
+import { getQuota, logUserInput, analyze } from './lib/ApiService';
 
 // --- Components ---
 
 const DataCard = ({ title, children, className = "" }: { title: string, children: React.ReactNode, className?: string }) => (
-  <div className={`border border-ink/10 p-6 ${className}`}>
+  <div className={`bg-paper border border-ink/10 p-6 ${className}`}>
     <h3 className="text-sm font-serif font-bold uppercase tracking-widest mb-4 text-ink/60">{title}</h3>
     <div className="font-serif text-ink">
       {children}
@@ -113,6 +114,11 @@ function App() {
   const [keyYears, setKeyYears] = useState<KeyYear[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  
+  // 认证状态
+  const { user, loading: authLoading, logout } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [remainingCalls, setRemainingCalls] = useState(19);
   // 以下认证相关状态已注释，直接使用 .env 中的 DeepSeek API
   // const [aiModel, setAiModel] = useState<'deepseek' | 'chatgpt'>('deepseek');
   // const [authMode, setAuthMode] = useState<'activation' | 'apikey'>('activation');
@@ -161,6 +167,62 @@ function App() {
     setHistoryList(getAnalysisHistory());
   }, []);
 
+  // 加载用户quota
+  useEffect(() => {
+    if (user) {
+      getQuota()
+        .then(data => setRemainingCalls(data.remainingCalls))
+        .catch(err => console.error('获取quota失败:', err));
+    }
+  }, [user]);
+
+  // 新增：自动保存用户输入状态，防止登录刷新后数据丢失
+  useEffect(() => {
+    if (userData && step !== 'input') {
+      localStorage.setItem('lifeline_pending_state', JSON.stringify({
+        userData: {
+          ...userData,
+          date: userData.date.toISOString()
+        },
+        step,
+        selectedCharts
+      }));
+    }
+  }, [userData, step, selectedCharts]);
+
+  // 新增：初始化时恢复状态
+  useEffect(() => {
+    const savedState = localStorage.getItem('lifeline_pending_state');
+    if (savedState && !userData) {
+      try {
+        const parsed = JSON.parse(savedState);
+        const savedUserData = {
+            ...parsed.userData,
+            date: new Date(parsed.userData.date)
+        };
+        
+        // 重新生成图表数据
+        const coords = getCoordinates(savedUserData.place);
+        const charts = AstrologyEngine.generateBaseCharts(
+            savedUserData.date, 
+            coords.lat, 
+            coords.lng, 
+            savedUserData.gender
+        );
+        
+        setUserData(savedUserData);
+        setChartData(charts);
+        setStep(parsed.step || 'charts');
+        if (parsed.selectedCharts) {
+            setSelectedCharts(parsed.selectedCharts);
+        }
+      } catch (e) {
+        console.error('Failed to restore state:', e);
+        localStorage.removeItem('lifeline_pending_state');
+      }
+    }
+  }, []);
+
   // 保存对话历史到 localStorage
   useEffect(() => {
     try {
@@ -171,6 +233,11 @@ function App() {
   }, [deepChatMessages]);
 
   const handleFormSubmit = (data: { date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string }) => {
+    // 记录用户输入（如果已登录）
+    if (user) {
+      logUserInput(data).catch(err => console.error('记录输入失败:', err));
+    }
+    
     // 1. Generate Charts locally
     const coords = getCoordinates(data.place);
     const charts = AstrologyEngine.generateBaseCharts(data.date, coords.lat, coords.lng, data.gender);
@@ -269,6 +336,18 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
   const performAIAnalysis = async () => {
     if (!userData || !chartData) return;
     
+    // 检查是否登录
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+    
+    // 检查剩余次数
+    if (remainingCalls <= 0) {
+      alert('调用次数已用完，请关注我的小红书/公众号私信获取更多次数');
+      return;
+    }
+    
     setIsAnalyzing(true);
     setPreviewError(null);
     setMultiSystemAnalysis({});
@@ -364,20 +443,32 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
         
         const { systemPrompt, userPrompt } = buildAnalysisPrompt(context, 'deepseek', undefined, system);
 
-        const analysisResult = await callAIService({
-          systemPrompt,
-          userPrompt,
-          model: 'deepseek',
-          apiKey: undefined, // 使用 .env 中的 API key
-          userData,
-          chartData,
+        // 使用后端API
+        const analysisResult = await analyze({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          callType: 'report',
+          metadata: {
+            system,
+            userData: {
+              name: userData.name,
+              gender: userData.gender,
+              date: userData.date.toISOString(),
+              place: userData.place
+            }
+          }
         });
 
-        return { system, result: analysisResult };
+        return { system, result: { success: true, analysis: analysisResult.message } };
       });
 
       // 等待所有分析完成
       const analysisResults = await Promise.all(analysisPromises);
+      
+      // 更新剩余次数（每次分析扣一次，不管多少体系）
+      setRemainingCalls(prev => Math.max(0, prev - 1));
       
       // 收集结果
       const newMultiAnalysis: { bazi?: string; western?: string; ziwei?: string } = {};
@@ -533,28 +624,61 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
   */
 
   return (
-    <div className={`min-h-screen flex flex-col items-center p-4 max-w-6xl mx-auto bg-paper text-ink selection:bg-accent selection:text-white ${step !== 'deepAnalysis' ? 'justify-center' : 'pt-8'}`}>
-      <header className={`text-center animate-fade-in relative w-full ${step === 'deepAnalysis' ? 'mb-6' : 'mb-16'}`}>
-        <h1 className="text-4xl font-serif font-bold tracking-tighter mb-2">LIFELINE</h1>
-        <p className="text-[10px] font-mono text-ink/40 uppercase tracking-[0.3em]">命运的架构</p>
+    <div className={`min-h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto bg-paper text-ink selection:bg-accent selection:text-white ${step !== 'deepAnalysis' ? 'justify-center' : 'pt-8'}`}>
+      <header className={`animate-fade-in w-full ${step === 'deepAnalysis' ? 'mb-6' : 'mb-16'}`}>
+        {/* 顶部导航栏 */}
+        <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-10">
+          <div className="flex items-center gap-3">
+            {historyList.length > 0 && (
+              <button
+                onClick={() => setShowHistory(true)}
+                className="text-xs font-mono text-ink/40 hover:text-accent transition-colors flex items-center gap-1"
+              >
+                <span>📜</span>
+                <span className="hidden sm:inline">历史 ({historyList.length})</span>
+              </button>
+            )}
+            
+            {authLoading ? (
+              <div className="text-xs text-ink/40">加载中...</div>
+            ) : user ? (
+              <UserInfo user={user} remainingCalls={remainingCalls} onLogout={logout} />
+            ) : (
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="px-4 py-2 text-xs font-mono text-ink/60 hover:text-accent border border-ink/20 hover:border-accent transition-all"
+              >
+                登录
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="mb-8" />
         
-        {/* 历史记录按钮 */}
-        {historyList.length > 0 && (
-          <button
-            onClick={() => setShowHistory(true)}
-            className="absolute right-0 top-1/2 -translate-y-1/2 text-xs font-mono text-ink/40 hover:text-accent transition-colors flex items-center gap-1"
-          >
-            <span>📜</span>
-            <span className="hidden sm:inline">历史 ({historyList.length})</span>
-          </button>
-        )}
+        {/* 标题居中 */}
+        <div className="text-center">
+          <h1 className="text-4xl font-serif font-bold tracking-tighter mb-2">LIFELINE</h1>
+          <p className="text-[10px] font-mono text-ink/40 uppercase tracking-[0.3em]">命运的架构</p>
+        </div>
       </header>
+
+      {/* 认证模态框 */}
+      {showAuthModal && (
+        <AuthModal
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={() => {
+            setShowAuthModal(false);
+            // 刷新quota
+            getQuota().then(data => setRemainingCalls(data.remainingCalls));
+          }}
+        />
+      )}
 
       {/* 历史记录面板 */}
       {showHistory && (
-        <div className="fixed inset-0 bg-ink/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-paper w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col border border-ink/10 shadow-xl">
-            <div className="flex justify-between items-center p-4 border-b border-ink/10">
+        <div className="fixed inset-0 bg-ink/30 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-paper w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col border border-ink/10">
+            <div className="flex justify-between items-center p-4 border-b border-ink/10 bg-gradient-to-r from-white to-paper/50">
               <h2 className="text-lg font-serif font-bold">分析历史</h2>
               <button 
                 onClick={() => {
@@ -620,14 +744,14 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
             
             {/* 深度求解入口按钮 */}
             {historyList.length > 0 && (
-              <div className="p-4 border-t border-ink/10">
+              <div className="p-4 border-t border-ink/10 bg-paper">
                 <button
                   onClick={() => {
                     setShowHistory(false);
                     setStep('deepAnalysis');
                     setDeepSelectedHistoryIds([]);
                   }}
-                  className="w-full py-2 bg-ink text-paper font-serif text-sm hover:bg-ink/80 transition-colors"
+                  className="w-full py-2.5 bg-ink text-paper font-serif text-sm hover:bg-ink/90 transition-all"
                 >
                   深度求解 →
                 </button>
@@ -646,6 +770,23 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
         
         {step === 'charts' && chartData && (
           <div className="animate-slide-up space-y-8">
+            {/* 返回按钮 */}
+            <button
+              onClick={() => {
+                setStep('input');
+                setChartData(null);
+                setUserData(null);
+                setSelectedCharts([]);
+                localStorage.removeItem('lifeline_pending_state');
+              }}
+              className="absolute top-4 left-4 sm:top-6 sm:left-6 flex items-center gap-1 text-xs font-mono text-ink/30 hover:text-ink/60 transition-colors"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              <span>返回</span>
+            </button>
+
             <div className="text-center mb-8">
                <p className="font-mono text-xs text-ink/40 uppercase tracking-widest mb-2">选择分析数据源</p>
             </div>
@@ -656,7 +797,11 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                 <div 
                   ref={baziCardRef}
                   onClick={() => toggleChartSelection('bazi')}
-                  className={`cursor-pointer transition-all duration-300 ${selectedCharts.includes('bazi') ? 'ring-2 ring-accent ring-offset-4 ring-offset-paper' : 'opacity-70 hover:opacity-100'}`}
+                  className={`cursor-pointer transition-all duration-300 ${
+                    selectedCharts.includes('bazi') 
+                      ? 'ring-2 ring-accent' 
+                      : 'opacity-70 hover:opacity-100'
+                  }`}
                 >
                   <DataCard title="01. 四柱八字 (Bazi)">
                   <div className="grid grid-cols-4 gap-2 text-center mb-4">
@@ -754,7 +899,11 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                 <div 
                   ref={westernCardRef}
                   onClick={() => toggleChartSelection('western')}
-                  className={`cursor-pointer transition-all duration-300 ${selectedCharts.includes('western') ? 'ring-2 ring-accent ring-offset-4 ring-offset-paper' : 'opacity-70 hover:opacity-100'}`}
+                  className={`cursor-pointer transition-all duration-300 ${
+                    selectedCharts.includes('western') 
+                      ? 'ring-2 ring-accent' 
+                      : 'opacity-70 hover:opacity-100'
+                  }`}
                 >
                   <DataCard title="02. 天体坐标 (Western)">
                   {/* Main Luminaries - Sun, Moon, Ascendant */}
@@ -812,7 +961,11 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                 <div 
                   ref={ziweiCardRef}
                   onClick={() => toggleChartSelection('ziwei')}
-                  className={`cursor-pointer transition-all duration-300 ${selectedCharts.includes('ziwei') ? 'ring-2 ring-accent ring-offset-4 ring-offset-paper' : 'opacity-70 hover:opacity-100'}`}
+                  className={`cursor-pointer transition-all duration-300 ${
+                    selectedCharts.includes('ziwei') 
+                      ? 'ring-2 ring-accent' 
+                      : 'opacity-70 hover:opacity-100'
+                  }`}
                 >
                 <DataCard title="03. 紫微斗数 (Ziwei)">
                  <div className="grid grid-cols-4 gap-2 text-xs">
@@ -1166,7 +1319,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                         setStep('deepAnalysis');
                         setDeepSelectedHistoryIds([]);
                       }}
-                      className="px-8 py-3 bg-ink text-paper font-serif text-sm hover:bg-ink/80 transition-colors"
+                      className="px-8 py-3 bg-ink text-paper font-serif text-sm hover:bg-ink/90 transition-all"
                     >
                       深度求解 →
                     </button>

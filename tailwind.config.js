@@ -13,7 +13,7 @@ export default {
       },
       colors: {
         ink: '#1a1a1a',
-        paper: '#f5f5f0',
+        paper: '#fafaf8', // 更柔和的米白色背景
         accent: '#d4af37', // Muted Gold
       },
       typography: {
