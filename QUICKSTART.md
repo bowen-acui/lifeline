@@ -74,7 +74,7 @@
    ```bash
    fly secrets set SUPABASE_URL="https://你的项目.supabase.co"
    fly secrets set SUPABASE_SERVICE_KEY="你的service_role密钥"
-   fly secrets set DEEPSEEK_API_KEY="sk-d8166e468c4d49099c5f3149119766b6"
+  fly secrets set DEEPSEEK_API_KEY="sk-your-deepseek-api-key-here"
    fly secrets set ADMIN_TOKEN="随便设置一个复杂密码"
    fly secrets set FRONTEND_URL="https://lifeline-xxx.pages.dev"
    ```

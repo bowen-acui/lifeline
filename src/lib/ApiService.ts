@@ -16,6 +16,18 @@ export interface AnalyzeResponse {
   remainingCalls: number;
 }
 
+export interface UsageLogItem {
+  id: string;
+  call_type: string;
+  created_at: string;
+  metadata?: { deducted?: number; action?: string; reportTitle?: string };
+}
+
+export interface UsageLogResponse {
+  logs: UsageLogItem[];
+}
+
+
 async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const { data: { session } } = await (await import('./AuthService')).supabase.auth.getSession();
   
@@ -52,6 +64,11 @@ export async function analyze(request: AnalyzeRequest): Promise<AnalyzeResponse>
     body: JSON.stringify(request),
   });
 }
+
+export async function getUsageLogs(limit: number = 50): Promise<UsageLogResponse> {
+  return fetchWithAuth(`/api/usage?limit=${limit}`);
+}
+
 
 export async function logUserInput(inputData: any): Promise<void> {
   return fetchWithAuth('/api/log-input', {

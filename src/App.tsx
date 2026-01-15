@@ -7,18 +7,20 @@ import MinimalForm from './components/MinimalForm';
 import DeepAnalysisPage from './components/DeepAnalysisPage';
 import { AstrologyEngine, BaseChartData } from './lib/AstrologyEngine';
 import { KeyYear } from './components/DualLineChart';
-import { prepareAIAnalysisContext } from './lib/ScoreGenerator';
-import { generatePreviewAnalysis } from './lib/PreviewAnalysisService';
+import { prepareAIAnalysisContext, generateYearScores, selectKeyYears } from './lib/ScoreGenerator';
 import { getCoordinates } from './lib/CityLookup';
 import { buildAnalysisPrompt } from './lib/AIPrompts';
 import { 
   getAnalysisHistory, 
   saveAnalysis,
+  deleteAnalysis,
   formatTimestamp,
   type AnalysisHistoryItem 
-} from './lib/HistoryStorage';
+} from './lib/CloudHistoryService';
 import { AuthModal, UserInfo, useAuth } from './components/Auth';
-import { getQuota, logUserInput, analyze } from './lib/ApiService';
+import { getQuota, logUserInput } from './lib/ApiService';
+import { callAIService } from './lib/AIService';
+import { trackEvent, trackPageView } from './lib/Tracking';
 
 // --- Components ---
 
@@ -37,30 +39,60 @@ const DescriptionPanel = ({
   visible, 
   copyLabel, 
   onCopy,
-  onCopyImage
+  onCopyImage,
+  trackingPage,
+  trackingSource
 }: { 
   description: string, 
   visible: boolean,
   copyLabel?: string,
   onCopy?: () => void,
-  onCopyImage?: () => void
+  onCopyImage?: () => void,
+  trackingPage?: string,
+  trackingSource?: string
 }) => {
   const [copied, setCopied] = React.useState(false);
   const [imageCopied, setImageCopied] = React.useState(false);
 
-  const handleCopy = () => {
+  const handleCopy = (element?: Element | null) => {
     if (onCopy) {
       onCopy();
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+    if (element) {
+      void trackEvent({
+        eventName: 'copy_text',
+        eventType: 'copy',
+        page: trackingPage,
+        component: 'DescriptionPanel',
+        element,
+        metadata: {
+          source: trackingSource,
+          label: copyLabel,
+        },
+      });
+    }
   };
 
-  const handleCopyImage = async () => {
+  const handleCopyImage = async (element?: Element | null) => {
     if (onCopyImage) {
       await onCopyImage();
       setImageCopied(true);
       setTimeout(() => setImageCopied(false), 2000);
+    }
+    if (element) {
+      void trackEvent({
+        eventName: 'copy_image',
+        eventType: 'copy',
+        page: trackingPage,
+        component: 'DescriptionPanel',
+        element,
+        metadata: {
+          source: trackingSource,
+          label: copyLabel,
+        },
+      });
     }
   };
 
@@ -75,7 +107,7 @@ const DescriptionPanel = ({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                handleCopy();
+                handleCopy(e.currentTarget);
               }}
               className="w-full px-3 py-1.5 text-[11px] font-mono border border-ink/20 hover:border-accent hover:text-accent transition-colors bg-paper"
             >
@@ -86,7 +118,7 @@ const DescriptionPanel = ({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                handleCopyImage();
+                void handleCopyImage(e.currentTarget);
               }}
               className="w-full px-3 py-1.5 text-[11px] font-mono border border-ink/20 hover:border-accent hover:text-accent transition-colors bg-paper"
             >
@@ -100,7 +132,7 @@ const DescriptionPanel = ({
 };
 
 const MutagenBadge = ({ mutagen }: { mutagen: string }) => (
-  <span className="ml-1 px-1 py-0.5 bg-ink text-paper text-[10px] font-mono leading-none">
+  <span className="ml-1 inline-flex items-center justify-center h-4 px-1 bg-ink text-paper text-[10px] font-mono leading-none">
     {mutagen}
   </span>
 );
@@ -114,6 +146,7 @@ function App() {
   const [keyYears, setKeyYears] = useState<KeyYear[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [analyzingHint, setAnalyzingHint] = useState('');
   
   // 认证状态
   const { user, loading: authLoading, logout } = useAuth();
@@ -128,6 +161,23 @@ function App() {
   // const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
+  type RecentProfile = {
+    name: string;
+    gender: '男' | '女';
+    date: string;
+    place: string;
+    createdAt: number;
+  };
+  const RECENT_PROFILES_KEY = 'lifeline_recent_profiles';
+  const [recentProfiles, setRecentProfiles] = useState<RecentProfile[]>(() => {
+    try {
+      const raw = localStorage.getItem(RECENT_PROFILES_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
   // Refs for card screenshots
   const baziCardRef = useRef<HTMLDivElement>(null);
   const westernCardRef = useRef<HTMLDivElement>(null);
@@ -139,6 +189,7 @@ function App() {
   const [showExpandedOptions, setShowExpandedOptions] = useState(false);
   const [selectedAspects, setSelectedAspects] = useState<string[]>([]);
   const [showAnalysisReport, setShowAnalysisReport] = useState(false);
+  const analyzingHintText = '可以前往其他页面，报告将在后台生成，生成之后可以点击右上角的“深度分析”按钮查看，并选择对应报告进行深入分析。';
   // 命理体系选择
   const [selectedSystems, setSelectedSystems] = useState<('bazi' | 'western' | 'ziwei')[]>([]);
   // 多体系分析结果
@@ -161,11 +212,20 @@ function App() {
   });
   const [deepChatInput, setDeepChatInput] = useState('');
   const [isDeepChatLoading, setIsDeepChatLoading] = useState(false);
+  const refreshHistoryList = async () => {
+    if (!user) return;
+    const history = await getAnalysisHistory();
+    setHistoryList(history);
+  };
 
-  // 加载历史记录
+  // 加载历史记录（只有登录用户才有历史）
   useEffect(() => {
-    setHistoryList(getAnalysisHistory());
-  }, []);
+    if (user) {
+      refreshHistoryList();
+    } else {
+      setHistoryList([]);
+    }
+  }, [user]);
 
   // 加载用户quota
   useEffect(() => {
@@ -175,6 +235,11 @@ function App() {
         .catch(err => console.error('获取quota失败:', err));
     }
   }, [user]);
+
+  // 页面PV埋点
+  useEffect(() => {
+    void trackPageView(step, { loggedIn: Boolean(user) });
+  }, [step, user]);
 
   // 新增：自动保存用户输入状态，防止登录刷新后数据丢失
   useEffect(() => {
@@ -232,7 +297,103 @@ function App() {
     }
   }, [deepChatMessages]);
 
+  useEffect(() => {
+    if (!isAnalyzing) {
+      setAnalyzingHint('');
+      return;
+    }
+    let i = 0;
+    setAnalyzingHint('');
+    const timer = setInterval(() => {
+      i += 1;
+      setAnalyzingHint(analyzingHintText.slice(0, i));
+      if (i >= analyzingHintText.length) {
+        clearInterval(timer);
+      }
+    }, 24);
+    return () => clearInterval(timer);
+  }, [isAnalyzing, analyzingHintText]);
+
+  const saveRecentProfiles = (profiles: RecentProfile[]) => {
+    setRecentProfiles(profiles);
+    try {
+      localStorage.setItem(RECENT_PROFILES_KEY, JSON.stringify(profiles));
+    } catch (error) {
+      console.error('保存最近档案失败:', error);
+    }
+  };
+
+  const addRecentProfile = (data: { date: Date; place: string; name: string; gender: '男' | '女' }) => {
+    const entry: RecentProfile = {
+      name: data.name?.trim() || '',
+      gender: data.gender,
+      date: data.date.toISOString(),
+      place: data.place,
+      createdAt: Date.now(),
+    };
+    const deduped = [
+      entry,
+      ...recentProfiles.filter(
+        (p) =>
+          !(
+            p.name === entry.name &&
+            p.gender === entry.gender &&
+            p.date === entry.date &&
+            p.place === entry.place
+          )
+      ),
+    ].slice(0, 3);
+    saveRecentProfiles(deduped);
+  };
+
+  const handleOpenRecentProfile = (profile: RecentProfile) => {
+    try {
+      const date = new Date(profile.date);
+      const coords = getCoordinates(profile.place);
+      const charts = AstrologyEngine.generateBaseCharts(
+        date,
+        coords.lat,
+        coords.lng,
+        profile.gender
+      );
+      setUserData({
+        date,
+        place: profile.place,
+        name: profile.name,
+        gender: profile.gender,
+      });
+      setChartData(charts);
+      setStep('charts');
+      setSelectedCharts([]);
+    } catch (error) {
+      console.error('打开最近档案失败:', error);
+      alert('无法打开该档案');
+    }
+  };
+
+  const handleDeleteRecentProfile = (profile: RecentProfile) => {
+    const updated = recentProfiles.filter(
+      (p) =>
+        !(
+          p.createdAt === profile.createdAt &&
+          p.date === profile.date &&
+          p.place === profile.place &&
+          p.gender === profile.gender &&
+          p.name === profile.name
+        )
+    );
+    saveRecentProfiles(updated);
+  };
+
   const handleFormSubmit = (data: { date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string }) => {
+    // 更新档案时清理旧报告
+    setShowAnalysisReport(false);
+    setMultiSystemAnalysis({});
+    setPreviewError(null);
+    setSelectedSystems([]);
+    setSelectedAspects([]);
+    setShowExpandedOptions(false);
+    addRecentProfile(data);
     // 记录用户输入（如果已登录）
     if (user) {
       logUserInput(data).catch(err => console.error('记录输入失败:', err));
@@ -342,9 +503,10 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
       return;
     }
     
-    // 检查剩余次数
-    if (remainingCalls <= 0) {
-      alert('调用次数已用完，请关注我的小红书/公众号私信获取更多次数');
+    // 检查剩余次数（每个体系消耗1次）
+    const systemsToAnalyze = selectedSystems.length || 1;
+    if (remainingCalls < systemsToAnalyze) {
+      alert(`需要${systemsToAnalyze}次调用次数，但只剩${remainingCalls}次。请关注我的小红书/公众号私信获取更多次数`);
       return;
     }
     
@@ -355,50 +517,21 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
     const birthYear = userData.date.getFullYear();
     const currentAge = new Date().getFullYear() - birthYear;
     
-    // 准备命理数据
-    const baziData = chartData.bazi ? {
-      yearPillar: chartData.bazi.year,
-      monthPillar: chartData.bazi.month,
-      dayPillar: chartData.bazi.day,
-      hourPillar: chartData.bazi.hour,
-      dayMaster: chartData.bazi.dayGan,
-      fiveElements: chartData.bazi.wuxingCount,
-    } : undefined;
-    
-    const westernData = chartData.western ? {
-      sunSign: chartData.western.sunSign,
-      moonSign: chartData.western.moonSign,
-      risingSign: chartData.western.ascendant || '未知',
-      dominantPlanet: chartData.western.sunElement || '未知',
-    } : undefined;
-    
-    const ziweiData = chartData.ziwei ? {
-      mingGong: chartData.ziwei.mingGong,
-      shenGong: chartData.ziwei.mingGong,
-      majorStars: chartData.ziwei.palaces
-        .filter(p => p.name === '命宫')
-        .flatMap(p => p.stars.map(s => s.name))
-        .slice(0, 5),
-    } : undefined;
-    
-    // 调用AI生成趋势数据
-    const result = await generatePreviewAnalysis({
+    // 本地生成趋势数据与关键年份（不再调用预览AI）
+    const seed = `${userData.name}-${userData.gender}-${userData.date.toISOString()}-${userData.place}`;
+    const yearScores = generateYearScores({
       birthYear,
-      currentAge,
-      selectedSystems: selectedSystems,
-      baziData: selectedSystems.includes('bazi') ? baziData : undefined,
-      westernData: selectedSystems.includes('western') ? westernData : undefined,
-      ziweiData: selectedSystems.includes('ziwei') ? ziweiData : undefined,
+      seed,
+      selectedSystems
     });
-    
-    if (result.success && result.keyYears) {
-      setKeyYears(result.keyYears);
+    const generatedKeyYears = selectKeyYears(yearScores, 3, currentAge);
+    setKeyYears(generatedKeyYears);
       
       // 并行为每个选中的体系生成分析
       const analysisPromises = selectedSystems.map(async (system) => {
         // 构建该体系的AI分析上下文
         const context = prepareAIAnalysisContext(
-          result.keyYears!, 
+          generatedKeyYears, 
           [system], 
           undefined,
           // 用户基本信息
@@ -442,50 +575,60 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
         );
         
         const { systemPrompt, userPrompt } = buildAnalysisPrompt(context, 'deepseek', undefined, system);
+        const systemNames: Record<string, string> = {
+          bazi: '八字',
+          western: '星座',
+          ziwei: '紫微',
+        };
+        const dateStr = userData.date.toISOString().split('T')[0];
+        const genderStr = userData.gender;
+        const reportTitle = userData.name
+          ? `【${systemNames[system]}】${userData.name}-${dateStr}-${genderStr}`
+          : `【${systemNames[system]}】${dateStr}-${genderStr}`;
 
-        // 使用后端API
-        const analysisResult = await analyze({
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
+        // 直接调用 DeepSeek API
+        const analysisResult = await callAIService({
+          systemPrompt,
+          userPrompt,
+          model: 'deepseek',
+          apiKey: undefined, // 由后端统一处理密钥
+          userData,
+          chartData,
           callType: 'report',
-          metadata: {
-            system,
-            userData: {
-              name: userData.name,
-              gender: userData.gender,
-              date: userData.date.toISOString(),
-              place: userData.place
-            }
-          }
+          metadata: { reportTitle },
         });
 
-        return { system, result: { success: true, analysis: analysisResult.message } };
+        return { system, result: analysisResult };
       });
 
       // 等待所有分析完成
       const analysisResults = await Promise.all(analysisPromises);
       
-      // 更新剩余次数（每次分析扣一次，不管多少体系）
-      setRemainingCalls(prev => Math.max(0, prev - 1));
-      
       // 收集结果
       const newMultiAnalysis: { bazi?: string; western?: string; ziwei?: string } = {};
-      let hasSuccess = false;
+      let successCount = 0;
       
       for (const { system, result: analysisResult } of analysisResults) {
         if (analysisResult.success && analysisResult.analysis) {
           newMultiAnalysis[system] = analysisResult.analysis;
-          hasSuccess = true;
+          successCount++;
         }
       }
       
-      if (hasSuccess) {
+      // 更新剩余次数（后端已扣减，刷新本地状态）
+      if (successCount > 0 && user) {
+        try {
+          const quota = await getQuota();
+          setRemainingCalls(quota.remainingCalls);
+        } catch (quotaError) {
+          console.error('刷新额度失败:', quotaError);
+        }
+      }
+      
+      if (successCount > 0) {
         setMultiSystemAnalysis(newMultiAnalysis);
         setShowAnalysisReport(true);
         
-        // 为每个体系分别保存历史记录
         const systemNames: Record<string, string> = {
           bazi: '八字',
           western: '星座',
@@ -494,33 +637,41 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
         const dateStr = userData.date.toISOString().split('T')[0];
         const genderStr = userData.gender;
         
-        for (const [sys, text] of Object.entries(newMultiAnalysis)) {
-          if (text) {
-            const title = `【${systemNames[sys]}】${userData.name}-${dateStr}-${genderStr}`;
-            saveAnalysis({
-              title,
-              userData: {
-                name: userData.name,
-                gender: userData.gender,
-                date: dateStr,
-                place: userData.place,
-              },
-              selectedSystems: [sys],
-              analysisType: 'overall',
-              model: 'deepseek',
-              analysis: text,
-              keyYears: result.keyYears,
-            });
+        // 为每个体系分别保存历史记录
+        // 只有登录用户才保存历史
+        if (user) {
+          for (const [sys, text] of Object.entries(newMultiAnalysis)) {
+            if (text) {
+              const title = userData.name
+                ? `【${systemNames[sys]}】${userData.name}-${dateStr}-${genderStr}`
+                : `【${systemNames[sys]}】${dateStr}-${genderStr}`;
+              await saveAnalysis({
+                title,
+                userData: {
+                  name: userData.name,
+                  gender: userData.gender,
+                  date: dateStr,
+                  place: userData.place,
+                },
+                selectedSystems: [sys],
+                analysisType: 'overall',
+                model: 'deepseek',
+                analysis: text,
+                keyYears: generatedKeyYears,
+              });
+            }
           }
+          
+          // 刷新历史列表
+          const history = await getAnalysisHistory();
+          setHistoryList(history);
         }
-        
-        // 刷新历史列表
-        setHistoryList(getAnalysisHistory());
       } else {
         setPreviewError('AI分析失败，请重试');
       }
-    } else {
-      setPreviewError(result.error || '生成失败，请重试');
+    // 本地生成失败时提示
+    if (generatedKeyYears.length === 0) {
+      setPreviewError('生成失败，请重试');
     }
 
     setIsAnalyzing(false);
@@ -625,34 +776,77 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
 
   return (
     <div className={`min-h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto bg-paper text-ink selection:bg-accent selection:text-white ${step !== 'deepAnalysis' ? 'justify-center' : 'pt-8'}`}>
-      <header className={`animate-fade-in w-full ${step === 'deepAnalysis' ? 'mb-6' : 'mb-16'}`}>
-        {/* 顶部导航栏 */}
-        <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-10">
+      {/* 顶部导航栏 - 返回按钮和用户信息 */}
+      {step !== 'deepAnalysis' && (
+        <div className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 flex justify-between items-center z-10">
+          {/* 左侧：返回按钮 */}
+          {step === 'charts' ? (
+            <button
+              onClick={() => {
+                setStep('input');
+                setChartData(null);
+                setUserData(null);
+                setSelectedCharts([]);
+                localStorage.removeItem('lifeline_pending_state');
+              }}
+              className="px-4 py-2 text-xs font-serif text-ink/60 hover:text-accent border border-transparent transition-all"
+            >
+              ← 返回
+            </button>
+          ) : (
+            <div></div>
+          )}
+          
+          {/* 右侧：历史和登录 */}
           <div className="flex items-center gap-3">
-            {historyList.length > 0 && (
-              <button
-                onClick={() => setShowHistory(true)}
-                className="text-xs font-mono text-ink/40 hover:text-accent transition-colors flex items-center gap-1"
-              >
-                <span>📜</span>
-                <span className="hidden sm:inline">历史 ({historyList.length})</span>
-              </button>
+            {/* 深度求解入口（仅登录用户） */}
+            {user && historyList.length > 0 && (
+              <div className="text-xs font-serif text-ink/50 flex items-center gap-0">
+                <span>已生成{historyList.length}份档案，</span>
+                <button
+                  onClick={(e) => {
+                    void trackEvent({
+                      eventName: 'open_deep_analysis',
+                      eventType: 'click',
+                      page: step,
+                      component: 'App',
+                      element: e.currentTarget,
+                    });
+                    setShowHistory(false);
+                    setStep('deepAnalysis');
+                    setDeepSelectedHistoryIds([]);
+                  }}
+                  className="text-xs font-serif text-accent hover:text-ink transition-colors"
+                >
+                  深度求解→
+                </button>
+              </div>
             )}
             
             {authLoading ? (
               <div className="text-xs text-ink/40">加载中...</div>
             ) : user ? (
-              <UserInfo user={user} remainingCalls={remainingCalls} onLogout={logout} />
+              <UserInfo
+                user={user}
+                remainingCalls={remainingCalls}
+                onLogout={logout}
+                recentProfiles={recentProfiles}
+                onOpenRecentProfile={handleOpenRecentProfile}
+                onDeleteRecentProfile={handleDeleteRecentProfile}
+              />
             ) : (
               <button
                 onClick={() => setShowAuthModal(true)}
-                className="px-4 py-2 text-xs font-mono text-ink/60 hover:text-accent border border-ink/20 hover:border-accent transition-all"
+                className="px-4 py-2 text-xs font-serif text-ink/60 hover:text-accent border border-ink/20 hover:border-accent transition-all"
               >
                 登录
               </button>
             )}
           </div>
         </div>
+      )}
+      
+      <header className={`animate-fade-in w-full ${step === 'deepAnalysis' ? 'mb-6' : 'mb-16'}`}>
         <div className="mb-8" />
         
         {/* 标题居中 */}
@@ -694,12 +888,32 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
             {viewingHistoryItem ? (
               // 查看单条记录详情
               <div className="flex-1 overflow-y-auto p-6">
-                <button
-                  onClick={() => setViewingHistoryItem(null)}
-                  className="text-xs font-mono text-accent hover:underline mb-4"
-                >
-                  ← 返回列表
-                </button>
+                <div className="flex justify-between items-center mb-4">
+                  <button
+                    onClick={() => setViewingHistoryItem(null)}
+                    className="text-xs font-mono text-accent hover:underline"
+                  >
+                    ← 返回列表
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (window.confirm('确定要删除这条记录吗？此操作不可逆！')) {
+                        const success = await deleteAnalysis(viewingHistoryItem.id);
+                        if (success) {
+                          // 刷新历史列表
+                          const history = await getAnalysisHistory();
+                          setHistoryList(history);
+                          setViewingHistoryItem(null);
+                        } else {
+                          alert('删除失败，请重试');
+                        }
+                      }
+                    }}
+                    className="text-xs font-mono text-red-500 hover:text-red-700 hover:underline"
+                  >
+                    删除记录
+                  </button>
+                </div>
                 <div className="mb-6">
                   <h3 className="font-serif font-bold text-lg">{viewingHistoryItem.userData.name} - {viewingHistoryItem.userData.gender}</h3>
                   <p className="text-xs text-ink/40 font-mono mt-1">{formatTimestamp(viewingHistoryItem.timestamp)}</p>
@@ -753,7 +967,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   }}
                   className="w-full py-2.5 bg-ink text-paper font-serif text-sm hover:bg-ink/90 transition-all"
                 >
-                  深度求解 →
+                  深度求解 ({historyList.length}) →
                 </button>
               </div>
             )}
@@ -770,27 +984,6 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
         
         {step === 'charts' && chartData && (
           <div className="animate-slide-up space-y-8">
-            {/* 返回按钮 */}
-            <button
-              onClick={() => {
-                setStep('input');
-                setChartData(null);
-                setUserData(null);
-                setSelectedCharts([]);
-                localStorage.removeItem('lifeline_pending_state');
-              }}
-              className="absolute top-4 left-4 sm:top-6 sm:left-6 flex items-center gap-1 text-xs font-mono text-ink/30 hover:text-ink/60 transition-colors"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              <span>返回</span>
-            </button>
-
-            <div className="text-center mb-8">
-               <p className="font-mono text-xs text-ink/40 uppercase tracking-widest mb-2">选择分析数据源</p>
-            </div>
-
             <div className="space-y-6">
               {/* Bazi Card */}
               <div className="relative">
@@ -891,6 +1084,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   copyLabel="八字"
                   onCopy={copyBaziInfo}
                   onCopyImage={copyBaziImage}
+                  trackingPage={step}
+                  trackingSource="bazi"
                 />
               </div>
 
@@ -953,6 +1148,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   copyLabel="天体"
                   onCopy={copyWesternInfo}
                   onCopyImage={copyWesternImage}
+                  trackingPage={step}
+                  trackingSource="western"
                 />
               </div>
 
@@ -983,7 +1180,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                           {palace.stars.slice(0, 10).map((s) => (
                             <span
                               key={`${palace.name}-${s.name}-${s.mutagen ?? ''}`}
-                              className="inline-flex items-center px-1 py-0.5 border border-ink/10 font-mono text-[10px] text-ink/80"
+                              className="flex items-center justify-center h-5 px-1 border border-ink/10 font-mono text-[10px] text-ink/80 leading-none"
                             >
                               {s.name}
                               {s.mutagen ? <MutagenBadge mutagen={s.mutagen} /> : null}
@@ -1006,6 +1203,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   copyLabel="紫微"
                   onCopy={copyZiweiInfo}
                   onCopyImage={copyZiweiImage}
+                  trackingPage={step}
+                  trackingSource="ziwei"
                 />
               </div>
             </div>
@@ -1222,6 +1421,11 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                     {isAnalyzing ? '正在生成AI深度分析...' : 'AI深度分析'}
                   </button>
                 </div>
+                {isAnalyzing && (
+                  <div className="mt-3 text-[10px] font-serif text-ink/40 text-center">
+                    <span className="typewriter-caret">{analyzingHint}</span>
+                  </div>
+                )}
 
                 {/* 分析报告展示区 - 多体系分栏显示 */}
                 {showAnalysisReport && Object.keys(multiSystemAnalysis).length > 0 && (
@@ -1321,12 +1525,34 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                       }}
                       className="px-8 py-3 bg-ink text-paper font-serif text-sm hover:bg-ink/90 transition-all"
                     >
-                      深度求解 →
+                      深度求解 ({historyList.length}) →
                     </button>
                   </div>
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {step === 'charts' && !chartData && (
+          <div className="animate-fade-in text-center py-20">
+            <p className="text-sm font-serif text-ink/60 mb-6">暂无命盘数据，请先填写出生信息</p>
+            <div className="flex items-center justify-center gap-3">
+              <button
+                onClick={() => setStep('input')}
+                className="px-6 py-2 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors"
+              >
+                返回填写
+              </button>
+              {recentProfiles.length > 0 && (
+                <button
+                  onClick={() => handleOpenRecentProfile(recentProfiles[0])}
+                  className="px-6 py-2 bg-ink text-paper text-sm font-serif hover:bg-ink/90 transition-colors"
+                >
+                  打开最近档案
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -1342,12 +1568,21 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
             onChatInputChange={setDeepChatInput}
             isLoading={isDeepChatLoading}
             onSetLoading={setIsDeepChatLoading}
-            onBack={() => setStep('charts')}
+            onBack={() => setStep(chartData ? 'charts' : 'input')}
             onNewProfile={() => setStep('input')}
             aiModel="deepseek"
             apiKey={undefined}
             userData={userData}
             chartData={chartData}
+            user={user}
+            remainingCalls={remainingCalls}
+            onRemainingCallsChange={setRemainingCalls}
+            onLogout={logout}
+            onShowAuthModal={() => setShowAuthModal(true)}
+            recentProfiles={recentProfiles}
+            onOpenRecentProfile={handleOpenRecentProfile}
+            onDeleteRecentProfile={handleDeleteRecentProfile}
+            onHistoryListRefresh={refreshHistoryList}
           />,
           document.body
         )}

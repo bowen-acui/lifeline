@@ -3,10 +3,13 @@ import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import html2canvas from 'html2canvas';
-import { type AnalysisHistoryItem, formatTimestamp } from '../lib/HistoryStorage';
+import { type AnalysisHistoryItem, formatTimestamp, deleteAnalysis } from '../lib/CloudHistoryService';
 import { callAIService } from '../lib/AIService';
 import { BaseChartData } from '../lib/AstrologyEngine';
 import LifeKLineChart from './LifeKLineChart';
+import { UserInfo } from './Auth';
+import type { User } from '@supabase/supabase-js';
+import { trackEvent, trackExposure } from '../lib/Tracking';
 
 interface DeepAnalysisPageProps {
   historyList: AnalysisHistoryItem[];
@@ -24,6 +27,33 @@ interface DeepAnalysisPageProps {
   apiKey?: string;
   userData: { date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string } | null;
   chartData: BaseChartData | null;
+  user: User | null;
+  remainingCalls: number;
+  onRemainingCallsChange: (calls: number) => void;
+  onLogout: () => void;
+  onShowAuthModal: () => void;
+  recentProfiles?: Array<{
+    name: string;
+    gender: '男' | '女';
+    date: string;
+    place: string;
+    createdAt: number;
+  }>;
+  onOpenRecentProfile?: (profile: {
+    name: string;
+    gender: '男' | '女';
+    date: string;
+    place: string;
+    createdAt: number;
+  }) => void;
+  onDeleteRecentProfile?: (profile: {
+    name: string;
+    gender: '男' | '女';
+    date: string;
+    place: string;
+    createdAt: number;
+  }) => void;
+  onHistoryListRefresh?: () => Promise<void> | void;
 }
 
 // 深度分析师的系统提示词
@@ -55,9 +85,23 @@ export default function DeepAnalysisPage({
   apiKey,
   userData,
   chartData,
+  user,
+  remainingCalls,
+  onRemainingCallsChange,
+  onLogout,
+  onShowAuthModal,
+  recentProfiles,
+  onOpenRecentProfile,
+  onDeleteRecentProfile,
+  onHistoryListRefresh,
 }: DeepAnalysisPageProps) {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const compareButtonRef = useRef<HTMLButtonElement>(null);
+  const synastryButtonRef = useRef<HTMLButtonElement>(null);
+  const klineButtonRef = useRef<HTMLButtonElement>(null);
+  const clearButtonRef = useRef<HTMLButtonElement>(null);
+  const exposureTrackedRef = useRef<Set<string>>(new Set());
   
   // 历史详情悬窗
   const [viewingHistoryItem, setViewingHistoryItem] = useState<AnalysisHistoryItem | null>(null);
@@ -83,6 +127,53 @@ export default function DeepAnalysisPage({
   // 选中文本追问
   const [selectedText, setSelectedText] = useState<string>('');
   const [selectionPosition, setSelectionPosition] = useState<{ x: number; y: number } | null>(null);
+
+  // 快捷按钮曝光
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+
+    const trackingMap = new Map<string, { eventName: string; label: string }>([
+      ['compare', { eventName: 'deep_analysis_compare_exposure', label: '对比分析' }],
+      ['synastry', { eventName: 'deep_analysis_synastry_exposure', label: '合盘' }],
+      ['kline', { eventName: 'deep_analysis_kline_exposure', label: '绘制K线图' }],
+      ['clear', { eventName: 'deep_analysis_clear_exposure', label: '清空对话' }],
+    ]);
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        const target = entry.target as HTMLElement;
+        const trackId = target.getAttribute('data-track-id');
+        if (!trackId || exposureTrackedRef.current.has(trackId)) return;
+        const meta = trackingMap.get(trackId);
+        if (!meta) return;
+        exposureTrackedRef.current.add(trackId);
+        void trackExposure(target, {
+          eventName: meta.eventName,
+          page: 'deepAnalysis',
+          component: 'DeepAnalysisPage',
+          metadata: { label: meta.label },
+        });
+        observer.unobserve(target);
+      });
+    }, { threshold: 0.6 });
+
+    const items: Array<{ id: string; ref: { current: HTMLButtonElement | null } }> = [
+      { id: 'compare', ref: compareButtonRef },
+      { id: 'synastry', ref: synastryButtonRef },
+      { id: 'kline', ref: klineButtonRef },
+      { id: 'clear', ref: clearButtonRef },
+    ];
+
+    items.forEach(({ id, ref }) => {
+      const element = ref.current;
+      if (!element || exposureTrackedRef.current.has(id)) return;
+      element.setAttribute('data-track-id', id);
+      observer.observe(element);
+    });
+
+    return () => observer.disconnect();
+  }, [chatMessages.length]);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -329,6 +420,21 @@ ${h.analysis}`;
   const sendMessage = async (message: string) => {
     if (!message.trim() || isLoading) return;
 
+    // 检查是否登录
+    if (!user) {
+      onShowAuthModal();
+      return;
+    }
+
+    // 检查剩余次数
+    if (remainingCalls <= 0) {
+      onChatMessagesChange([...chatMessages, { 
+        role: 'assistant', 
+        content: '⚠️ 调用次数已用完，请关注我的小红书/公众号私信获取更多次数' 
+      }]);
+      return;
+    }
+
     const newUserMessage = { role: 'user' as const, content: message };
     const updatedMessages = [...chatMessages, newUserMessage];
     onChatMessagesChange(updatedMessages);
@@ -353,10 +459,15 @@ ${h.analysis}`;
         apiKey,
         userData,
         chartData,
+        callType: 'chat',
+        metadata: { action: '对话/问答' },
       });
 
       if (result.success && result.analysis) {
         onChatMessagesChange([...updatedMessages, { role: 'assistant', content: result.analysis }]);
+        if (typeof result.remainingCalls === 'number') {
+          onRemainingCallsChange(result.remainingCalls);
+        }
       } else {
         onChatMessagesChange([...updatedMessages, { role: 'assistant', content: '抱歉，分析生成失败，请重试。' }]);
       }
@@ -378,6 +489,21 @@ ${h.analysis}`;
       return;
     }
 
+    // 检查是否登录
+    if (!user) {
+      onShowAuthModal();
+      return;
+    }
+
+    // 检查剩余次数
+    if (remainingCalls <= 0) {
+      onChatMessagesChange([...chatMessages, { 
+        role: 'assistant', 
+        content: '⚠️ 调用次数已用完，请关注我的小红书/公众号私信获取更多次数' 
+      }]);
+      return;
+    }
+
     onSetLoading(true);
     const context = buildContext();
     const systemPrompt = `${DEEP_ANALYST_SYSTEM_PROMPT}\n\n以下是需要对比的命理分析报告：\n\n${context}`;
@@ -389,7 +515,9 @@ ${h.analysis}`;
 
 请用简洁有力的语言总结。`;
 
-    const newMessages = [...chatMessages, { role: 'user' as const, content: '【对比分析】请对比选中的命理报告' }];
+    // 构建选中的报告标题列表
+    const selectedTitles = selectedHistories.map(h => h.title || `${h.userData.name}-${h.userData.gender}`).join('、');
+    const newMessages = [...chatMessages, { role: 'user' as const, content: `【对比分析】${selectedTitles}` }];
     onChatMessagesChange(newMessages);
 
     try {
@@ -400,10 +528,15 @@ ${h.analysis}`;
         apiKey,
         userData,
         chartData,
+        callType: 'chat',
+        metadata: { action: '对比分析' },
       });
 
       if (result.success && result.analysis) {
         onChatMessagesChange([...newMessages, { role: 'assistant', content: result.analysis }]);
+        if (typeof result.remainingCalls === 'number') {
+          onRemainingCallsChange(result.remainingCalls);
+        }
       } else {
         onChatMessagesChange([...newMessages, { role: 'assistant', content: '对比分析生成失败，请重试。' }]);
       }
@@ -432,6 +565,21 @@ ${h.analysis}`;
       return;
     }
 
+    // 检查是否登录
+    if (!user) {
+      onShowAuthModal();
+      return;
+    }
+
+    // 检查剩余次数
+    if (remainingCalls <= 0) {
+      onChatMessagesChange([...chatMessages, { 
+        role: 'assistant', 
+        content: '⚠️ 调用次数已用完，请关注我的小红书/公众号私信获取更多次数' 
+      }]);
+      return;
+    }
+
     onSetLoading(true);
     const context = buildContext();
     const names = selectedHistories.map(h => h.title || h.userData.name).join('、');
@@ -455,12 +603,17 @@ ${h.analysis}`;
         apiKey,
         userData,
         chartData,
+        callType: 'synastry',
+        metadata: { action: '合盘分析' },
       });
 
       if (result.success && result.analysis) {
         onChatMessagesChange([...newMessages, { role: 'assistant', content: result.analysis }]);
+        if (typeof result.remainingCalls === 'number') {
+          onRemainingCallsChange(result.remainingCalls);
+        }
       } else {
-        onChatMessagesChange([...newMessages, { role: 'assistant', content: '合盘分析生成失败，请重试。' }]);
+        onChatMessagesChange([...newMessages, { role: 'assistant', content: `合盘分析生成失败：${result.error || '请重试。'}` }]);
       }
     } catch (error) {
       console.error('Synastry error:', error);
@@ -476,6 +629,21 @@ ${h.analysis}`;
       onChatMessagesChange([...chatMessages, { 
         role: 'assistant', 
         content: '⚠️ 请至少选择1份分析报告才能绘制K线图。' 
+      }]);
+      return;
+    }
+
+    // 检查是否登录
+    if (!user) {
+      onShowAuthModal();
+      return;
+    }
+
+    // 检查剩余次数
+    if (remainingCalls <= 0) {
+      onChatMessagesChange([...chatMessages, { 
+        role: 'assistant', 
+        content: '⚠️ 调用次数已用完，请关注我的小红书/公众号私信获取更多次数' 
       }]);
       return;
     }
@@ -539,6 +707,8 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
         apiKey,
         userData,
         chartData,
+        callType: 'kline',
+        metadata: { action: '绘制K线图' },
       });
 
       if (result.success && result.analysis) {
@@ -552,6 +722,9 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
               role: 'assistant', 
               content: `__KLINE_DATA__${JSON.stringify(klineData)}` 
             }]);
+            if (typeof result.remainingCalls === 'number') {
+              onRemainingCallsChange(result.remainingCalls);
+            }
           } else {
             onChatMessagesChange([...newMessages, { role: 'assistant', content: 'K线数据生成失败，请重试。' }]);
           }
@@ -638,7 +811,25 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
           <h2 className="text-2xl font-serif font-bold tracking-tighter">LIFELINE</h2>
           <p className="text-[10px] font-mono text-ink/40 uppercase tracking-[0.3em] mt-1">深度求解</p>
         </div>
-        <div className="w-16"></div>
+        <div className="min-w-[120px] flex justify-end">
+          {user ? (
+            <UserInfo
+              user={user}
+              remainingCalls={remainingCalls}
+              onLogout={onLogout}
+              recentProfiles={recentProfiles}
+              onOpenRecentProfile={onOpenRecentProfile}
+              onDeleteRecentProfile={onDeleteRecentProfile}
+            />
+          ) : (
+            <button
+              onClick={onShowAuthModal}
+              className="px-4 py-2 text-xs font-serif text-ink/60 hover:text-accent border border-ink/20 hover:border-accent transition-all"
+            >
+              登录
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 主体两栏布局 */}
@@ -685,16 +876,49 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            void trackEvent({
+                              eventName: 'open_report_detail',
+                              eventType: 'click',
+                              page: 'deepAnalysis',
+                              component: 'DeepAnalysisPage',
+                              element: e.currentTarget,
+                              metadata: {
+                                reportId: item.id,
+                                title: item.title,
+                              },
+                            });
                             setViewingHistoryItem(item);
                           }}
                           className="font-serif text-xs truncate text-left w-full text-accent underline decoration-accent/30 hover:decoration-accent transition-colors"
                         >
-                          {item.title || `${item.userData.name} - ${item.userData.gender}`}
+                          {item.title || `${item.userData.name} ${item.userData.gender}`}
                         </button>
                         <p className="text-[10px] text-ink/40 font-mono mt-0.5">
                           {formatTimestamp(item.timestamp)}
                         </p>
                       </div>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (!window.confirm('确定要删除这条报告吗？此操作不可撤销。')) return;
+                          const success = await deleteAnalysis(item.id);
+                          if (success) {
+                            if (selectedIds.includes(item.id)) {
+                              onSelectIds(selectedIds.filter(i => i !== item.id));
+                            }
+                            if (viewingHistoryItem?.id === item.id) {
+                              setViewingHistoryItem(null);
+                            }
+                            await onHistoryListRefresh?.();
+                          } else {
+                            alert('删除失败，请重试');
+                          }
+                        }}
+                        className="ml-auto text-ink/30 hover:text-ink/60 text-xs leading-none"
+                        aria-label="删除报告"
+                      >
+                        ×
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -713,21 +937,51 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
           {/* Shortcut 按钮区 */}
           <div className="px-6 py-4 border-b border-ink/10 flex gap-3">
             <button
-              onClick={handleCompareAnalysis}
+              ref={compareButtonRef}
+              onClick={(e) => {
+                void trackEvent({
+                  eventName: 'deep_analysis_compare_click',
+                  eventType: 'click',
+                  page: 'deepAnalysis',
+                  component: 'DeepAnalysisPage',
+                  element: e.currentTarget,
+                });
+                handleCompareAnalysis();
+              }}
               disabled={isLoading}
               className="px-4 py-2 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50"
             >
               对比分析
             </button>
             <button
-              onClick={handleSynastryAnalysis}
+              ref={synastryButtonRef}
+              onClick={(e) => {
+                void trackEvent({
+                  eventName: 'deep_analysis_synastry_click',
+                  eventType: 'click',
+                  page: 'deepAnalysis',
+                  component: 'DeepAnalysisPage',
+                  element: e.currentTarget,
+                });
+                handleSynastryAnalysis();
+              }}
               disabled={isLoading}
               className="px-4 py-2 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50"
             >
               合盘
             </button>
             <button
-              onClick={handleDrawKLine}
+              ref={klineButtonRef}
+              onClick={(e) => {
+                void trackEvent({
+                  eventName: 'deep_analysis_kline_click',
+                  eventType: 'click',
+                  page: 'deepAnalysis',
+                  component: 'DeepAnalysisPage',
+                  element: e.currentTarget,
+                });
+                handleDrawKLine();
+              }}
               disabled={isLoading}
               className="px-4 py-2 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50"
             >
@@ -738,7 +992,15 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
             {/* 清空对话按钮 */}
             {chatMessages.length > 0 && (
               <button
-                onClick={() => {
+                ref={clearButtonRef}
+                onClick={(e) => {
+                  void trackEvent({
+                    eventName: 'deep_analysis_clear_chat',
+                    eventType: 'click',
+                    page: 'deepAnalysis',
+                    component: 'DeepAnalysisPage',
+                    element: e.currentTarget,
+                  });
                   if (window.confirm('确定要清空所有对话历史吗？')) {
                     onChatMessagesChange([]);
                   }
@@ -788,7 +1050,17 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                       <div className="flex items-center gap-2 text-ink/40">
                         {/* 复制 */}
                         <button
-                          onClick={() => handleCopy(msg.content, index)}
+                          onClick={(e) => {
+                            void trackEvent({
+                              eventName: 'chat_copy',
+                              eventType: 'copy',
+                              page: 'deepAnalysis',
+                              component: 'DeepAnalysisPage',
+                              element: e.currentTarget,
+                              metadata: { messageIndex: index },
+                            });
+                            handleCopy(msg.content, index);
+                          }}
                           className="p-1 hover:text-ink transition-colors"
                           title="复制"
                         >
@@ -802,7 +1074,17 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                         </button>
                         {/* 点赞 */}
                         <button
-                          onClick={() => handleReaction(index, 'like')}
+                          onClick={(e) => {
+                            void trackEvent({
+                              eventName: 'chat_like',
+                              eventType: 'click',
+                              page: 'deepAnalysis',
+                              component: 'DeepAnalysisPage',
+                              element: e.currentTarget,
+                              metadata: { messageIndex: index },
+                            });
+                            handleReaction(index, 'like');
+                          }}
                           className={`p-1 hover:text-ink transition-colors ${messageReactions[index] === 'like' ? 'text-accent' : ''}`}
                           title="点赞"
                         >
@@ -812,7 +1094,17 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                         </button>
                         {/* 点踩 */}
                         <button
-                          onClick={() => handleReaction(index, 'dislike')}
+                          onClick={(e) => {
+                            void trackEvent({
+                              eventName: 'chat_dislike',
+                              eventType: 'click',
+                              page: 'deepAnalysis',
+                              component: 'DeepAnalysisPage',
+                              element: e.currentTarget,
+                              metadata: { messageIndex: index },
+                            });
+                            handleReaction(index, 'dislike');
+                          }}
                           className={`p-1 hover:text-ink transition-colors ${messageReactions[index] === 'dislike' ? 'text-red-500' : ''}`}
                           title="点踩"
                         >
@@ -822,7 +1114,17 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                         </button>
                         {/* 分享 */}
                         <button
-                          onClick={() => handleShare(index)}
+                          onClick={(e) => {
+                            void trackEvent({
+                              eventName: 'chat_share_open',
+                              eventType: 'click',
+                              page: 'deepAnalysis',
+                              component: 'DeepAnalysisPage',
+                              element: e.currentTarget,
+                              metadata: { messageIndex: index },
+                            });
+                            handleShare(index);
+                          }}
                           className="p-1 hover:text-ink transition-colors"
                           title="分享"
                         >
@@ -906,16 +1208,20 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
             </div>
             
             <div className="flex-1 overflow-y-auto p-6">
-              <div className="prose prose-base max-w-none 
-                prose-headings:font-serif prose-headings:text-ink prose-headings:font-bold
-                prose-h2:text-xl prose-h2:mt-8 prose-h2:mb-4 prose-h2:border-b prose-h2:border-ink/10 prose-h2:pb-2
-                prose-h3:text-lg prose-h3:mt-6 prose-h3:mb-3
-                prose-p:text-ink/80 prose-p:leading-relaxed prose-p:my-3
-                prose-strong:text-ink prose-strong:font-semibold
-                prose-ul:my-4 prose-li:my-1
-                prose-table:text-sm">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{viewingHistoryItem.analysis}</ReactMarkdown>
-              </div>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  h1: ({children}) => <h1 className="text-lg font-serif font-bold text-ink mb-2 mt-4">{children}</h1>,
+                  h2: ({children}) => <h2 className="text-base font-serif font-bold text-ink mb-2 mt-3">{children}</h2>,
+                  h3: ({children}) => <h3 className="text-sm font-serif font-bold text-ink mb-1 mt-2">{children}</h3>,
+                  p: ({children}) => <p className="text-sm font-serif text-ink/80 leading-relaxed mb-2">{children}</p>,
+                  ul: ({children}) => <ul className="list-disc list-inside space-y-1 mb-2 ml-2 text-sm">{children}</ul>,
+                  ol: ({children}) => <ol className="list-decimal list-inside space-y-1 mb-2 ml-2 text-sm">{children}</ol>,
+                  li: ({children}) => <li className="text-sm font-serif text-ink/80">{children}</li>,
+                  strong: ({children}) => <strong className="font-bold text-ink">{children}</strong>,
+                  blockquote: ({children}) => <blockquote className="border-l-2 border-accent bg-accent/5 pl-3 py-1 my-2 italic text-ink/70 text-sm">{children}</blockquote>,
+                }}
+              >{viewingHistoryItem.analysis}</ReactMarkdown>
             </div>
           </div>
         </div>,
@@ -951,13 +1257,33 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
             <h3 className="font-serif font-bold text-base mb-4 text-center">分享对话</h3>
             <div className="flex gap-2">
               <button
-                onClick={shareLink}
+                onClick={(e) => {
+                  void trackEvent({
+                    eventName: 'chat_share_copy_link',
+                    eventType: 'share',
+                    page: 'deepAnalysis',
+                    component: 'DeepAnalysisPage',
+                    element: e.currentTarget,
+                    metadata: { messageIndex: shareModalIndex },
+                  });
+                  shareLink();
+                }}
                 className="flex-1 px-3 py-2 border border-ink/20 text-xs font-serif hover:bg-ink/5 transition-colors"
               >
                 复制链接
               </button>
               <button
-                onClick={copyScreenshot}
+                onClick={(e) => {
+                  void trackEvent({
+                    eventName: 'chat_share_copy_screenshot',
+                    eventType: 'share',
+                    page: 'deepAnalysis',
+                    component: 'DeepAnalysisPage',
+                    element: e.currentTarget,
+                    metadata: { messageIndex: shareModalIndex },
+                  });
+                  copyScreenshot();
+                }}
                 className="flex-1 px-3 py-2 bg-ink text-paper text-xs font-serif hover:bg-ink/80 transition-colors"
               >
                 复制截图

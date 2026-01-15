@@ -20,6 +20,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 
+
 // ==================== 认证中间件 ====================
 async function authenticateUser(req: express.Request, res: express.Response, next: express.NextFunction) {
   const authHeader = req.headers.authorization;
@@ -42,9 +43,82 @@ async function authenticateUser(req: express.Request, res: express.Response, nex
   next();
 }
 
+// 可选认证（埋点允许匿名）
+async function attachUserIfPresent(req: express.Request, _res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    (req as any).user = null;
+    return next();
+  }
+
+  const token = authHeader.substring(7);
+  const { data: { user } } = await supabase.auth.getUser(token);
+  (req as any).user = user ?? null;
+  next();
+}
+
 // ==================== 健康检查 ====================
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ==================== 埋点事件 ====================
+app.post('/api/events', attachUserIfPresent, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    const {
+      eventName,
+      eventType,
+      page,
+      component,
+      domPath,
+      elementText,
+      elementTag,
+      elementId,
+      elementClass,
+      position,
+      metadata,
+      sessionId,
+      anonId,
+      clientTimestamp,
+      pageUrl,
+      referrer
+    } = req.body || {};
+
+    if (!eventName || !eventType || !sessionId) {
+      return res.status(400).json({ error: '缺少必要参数' });
+    }
+
+    if (!user && !anonId) {
+      return res.status(400).json({ error: '缺少匿名标识' });
+    }
+
+    await supabase.from('user_events').insert({
+      user_id: user?.id ?? null,
+      anon_id: anonId ?? null,
+      session_id: sessionId,
+      event_name: eventName,
+      event_type: eventType,
+      page,
+      component,
+      dom_path: domPath,
+      element_text: elementText,
+      element_tag: elementTag,
+      element_id: elementId,
+      element_class: elementClass,
+      position: position ?? null,
+      metadata: metadata ?? null,
+      page_url: pageUrl ?? null,
+      referrer: referrer ?? null,
+      user_agent: req.headers['user-agent'] || null,
+      client_timestamp: clientTimestamp ?? null
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('埋点写入失败:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ==================== 获取用户quota ====================
@@ -92,10 +166,17 @@ app.get('/api/quota', authenticateUser, async (req, res) => {
 
 // ==================== AI分析接口 ====================
 app.post('/api/analyze', authenticateUser, async (req, res) => {
+  const startAt = Date.now();
+  const requestIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
+  const userAgent = req.headers['user-agent'] || '';
   try {
     const userId = (req as any).user.id;
     const userEmail = (req as any).user.email;
     const { messages, callType, metadata } = req.body;
+    const messageCount = Array.isArray(messages) ? messages.length : 0;
+    const totalChars = Array.isArray(messages)
+      ? messages.reduce((sum, m) => sum + (m?.content?.length || 0), 0)
+      : 0;
 
     // 1. 检查剩余次数（如果用户不存在则创建）
     let { data: userData, error: fetchError } = await supabase
@@ -161,7 +242,15 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
     await supabase.from('call_logs').insert({
       user_id: userId,
       call_type: callType || 'unknown',
-      metadata: metadata || {}
+      metadata: {
+        ...(metadata || {}),
+        messageCount,
+        totalChars,
+        ip: requestIp,
+        userAgent,
+        durationMs: Date.now() - startAt,
+        success: true
+      }
     });
 
     // 5. 如果有分析内容，记录到analysis_logs
@@ -181,6 +270,49 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
 
   } catch (error: any) {
     console.error('AI分析失败:', error);
+    try {
+      const userId = (req as any).user?.id;
+      if (userId) {
+        await supabase.from('call_logs').insert({
+          user_id: userId,
+          call_type: req.body?.callType || 'unknown',
+          metadata: {
+            ...(req.body?.metadata || {}),
+            messageCount: Array.isArray(req.body?.messages) ? req.body.messages.length : 0,
+            totalChars: Array.isArray(req.body?.messages)
+              ? req.body.messages.reduce((sum: number, m: any) => sum + (m?.content?.length || 0), 0)
+              : 0,
+            ip: requestIp,
+            userAgent,
+            durationMs: Date.now() - startAt,
+            success: false,
+            error: error?.message || 'unknown'
+          }
+        });
+      }
+    } catch (logError) {
+      console.error('记录调用日志失败:', logError);
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== 调用记录（扣分明细） ====================
+app.get('/api/usage', authenticateUser, async (req, res) => {
+  try {
+    const userId = (req as any).user.id;
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const { data, error } = await supabase
+      .from('call_logs')
+      .select('id, call_type, created_at, metadata')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+    res.json({ logs: data || [] });
+  } catch (error: any) {
+    console.error('获取调用记录失败:', error);
     res.status(500).json({ error: error.message });
   }
 });

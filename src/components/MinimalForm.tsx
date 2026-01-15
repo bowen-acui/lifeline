@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { lookupCity, getCityTimezone } from '../lib/CityLookup';
 import { FALLBACK_DATA, getFallbackRegions, getFallbackCities, searchCities, getCityCoordinates, getCityCoordinatesFromFallback, GeoCity, COUNTRY_CODES } from '../lib/GeoService';
+import { trackEvent } from '../lib/Tracking';
 
 interface MinimalFormProps {
     onSubmit: (data: { date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string }) => void;
@@ -39,6 +40,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
     const minuteRef = useRef<HTMLInputElement>(null);
     const countryRef = useRef<HTMLSelectElement>(null);
     const genderRef = useRef<HTMLSelectElement>(null);
+    const submitButtonRef = useRef<HTMLButtonElement>(null);
 
     // Initialize default location
     useEffect(() => {
@@ -178,12 +180,38 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
         // 显示选中的城市信息
         const displayText = `${city.name} (${city.adminName1}, ${city.countryName})`;
         setSelectedCityDisplay(displayText);
+        setSearchQuery(displayText);
         setLocationStatus({ 
             valid: true, 
             msg: `已定位: ${city.lat.toFixed(2)}, ${city.lng.toFixed(2)} (${city.timezone || 'UTC'})` 
         });
         setSearchResults([]);
-        setSearchQuery('');
+        void trackEvent({
+            eventName: 'select_city_result',
+            eventType: 'select',
+            page: 'input',
+            component: 'MinimalForm',
+            metadata: {
+                city: city.name,
+                region: city.adminName1,
+                country: city.countryName,
+            },
+        });
+    };
+
+    const isValidDate = (y: number, m: number, d: number, h: number, min: number) => {
+        if (y < 1900 || y > new Date().getFullYear()) return false;
+        if (m < 1 || m > 12) return false;
+        if (h < 0 || h > 23) return false;
+        if (min < 0 || min > 59) return false;
+        const date = new Date(y, m - 1, d, h, min, 0);
+        return (
+            date.getFullYear() === y &&
+            date.getMonth() === m - 1 &&
+            date.getDate() === d &&
+            date.getHours() === h &&
+            date.getMinutes() === min
+        );
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -196,19 +224,31 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
             return;
         }
 
-        const date = new Date(
-            Number(year),
-            Number(month) - 1,
-            Number(day),
-            Number(hour),
-            Number(minute),
-            0
-        );
-        
-        if (isNaN(date.getTime())) {
-            alert("日期格式无效");
+        const y = Number(year);
+        const m = Number(month);
+        const d = Number(day);
+        const h = Number(hour);
+        const min = Number(minute);
+
+        if (!isValidDate(y, m, d, h, min)) {
+            alert('生日时间无效，请检查年月日时分范围');
             return;
         }
+
+        const date = new Date(y, m - 1, d, h, min, 0);
+
+        void trackEvent({
+            eventName: 'generate_chart_matrix',
+            eventType: 'submit',
+            page: 'input',
+            component: 'MinimalForm',
+            element: submitButtonRef.current ?? e.currentTarget,
+            metadata: {
+                hasName: Boolean(name.trim()),
+                hasOrientation: Boolean(orientation.trim()),
+                hasSearchMode: useSearchMode,
+            },
+        });
 
         onSubmit({
             date,
@@ -284,7 +324,18 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                         <label htmlFor="birthPlace" className="block text-xs font-serif text-ink/40 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生地点 (Coordinates)</label>
                         <button 
                             type="button"
-                            onClick={() => {
+                            onClick={(e) => {
+                                const nextMode = !useSearchMode;
+                                void trackEvent({
+                                    eventName: 'toggle_city_search',
+                                    eventType: 'click',
+                                    page: 'input',
+                                    component: 'MinimalForm',
+                                    element: e.currentTarget,
+                                    metadata: {
+                                        nextMode: nextMode ? 'search' : 'select',
+                                    },
+                                });
                                 setUseSearchMode(!useSearchMode);
                                 setSearchError('');
                                 setSearchResults([]);
@@ -298,12 +349,6 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                     {useSearchMode ? (
                         // 搜索模式
                         <div className="space-y-2">
-                            {/* 选中的城市显示 */}
-                            {selectedCityDisplay && (
-                                <div className="font-serif text-lg border-b-2 border-ink/20 py-2 bg-white/60">
-                                    {selectedCityDisplay}
-                                </div>
-                            )}
                             <div className="flex gap-2">
                                 <input
                                     type="text"
@@ -311,6 +356,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                                     onChange={(e) => {
                                         setSearchQuery(e.target.value);
                                         if (searchError) setSearchError('');
+                                        if (searchResults.length > 0) setSearchResults([]);
                                     }}
                                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearch())}
                                     placeholder="输入城市名搜索（支持中英文）"
@@ -318,7 +364,19 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                                 />
                                 <button
                                     type="button"
-                                    onClick={handleSearch}
+                                    onClick={(e) => {
+                                        void trackEvent({
+                                            eventName: 'search_city',
+                                            eventType: 'search',
+                                            page: 'input',
+                                            component: 'MinimalForm',
+                                            element: e.currentTarget,
+                                            metadata: {
+                                                query: searchQuery.trim(),
+                                            },
+                                        });
+                                        handleSearch();
+                                    }}
                                     disabled={isSearching}
                                     className="px-4 py-2 bg-paper border border-ink/20 text-xs font-mono hover:border-accent transition-all disabled:opacity-50"
                                 >
@@ -388,7 +446,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                     )}
                     
                     {locationStatus && (
-                        <div className={`text-xs mt-2 font-mono px-2 py-1 rounded ${locationStatus.valid ? 'text-green-600 bg-green-50' : 'text-amber-600 bg-amber-50'}`}>
+                        <div className={`text-xs mt-2 font-mono px-2 py-1 rounded ${locationStatus.valid ? 'text-green-600' : 'text-amber-600 bg-amber-50'}`}>
                             {locationStatus.msg}
                         </div>
                     )}
@@ -448,6 +506,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                 <button
                     type="submit"
                     disabled={!year || !month || !day || !hour || !minute || !gender}
+                    ref={submitButtonRef}
                     className="btn-primary group relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <span className="relative z-10">生成命盘矩阵</span>

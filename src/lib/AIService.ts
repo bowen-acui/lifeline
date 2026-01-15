@@ -1,125 +1,16 @@
 /**
- * 前端直接调用 AI API 的服务
- * 用于开发环境或用户提供自己的 API Key 时
+ * 统一的 AI 调用接口（强制走后端）
  */
-
-interface AIRequestParams {
-  systemPrompt: string;
-  userPrompt: string;
-  model: 'deepseek' | 'chatgpt';
-  apiKey: string;
-}
 
 interface AIResponse {
   success: boolean;
   analysis?: string;
   error?: string;
+  remainingCalls?: number;
 }
 
-/**
- * 直接调用 DeepSeek API
- */
-async function callDeepSeek(params: AIRequestParams): Promise<AIResponse> {
-  const { systemPrompt, userPrompt, apiKey } = params;
-  
-  try {
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 4000,
-      }),
-    });
+import { analyze } from './ApiService';
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      if (response.status === 401) {
-        return { success: false, error: 'API Key 无效，请检查后重试' };
-      } else if (response.status === 429) {
-        return { success: false, error: 'API 调用频率超限，请稍后重试' };
-      } else if (response.status === 402) {
-        return { success: false, error: 'API 账户余额不足' };
-      }
-      return { success: false, error: errorData.error?.message || `请求失败 (${response.status})` };
-    }
-
-    const data = await response.json();
-    const analysis = data.choices?.[0]?.message?.content;
-    
-    if (!analysis) {
-      return { success: false, error: 'AI 返回结果为空' };
-    }
-
-    return { success: true, analysis };
-  } catch (error: any) {
-    console.error('DeepSeek API Error:', error);
-    return { success: false, error: error.message || '网络请求失败' };
-  }
-}
-
-/**
- * 直接调用 OpenAI API
- */
-async function callOpenAI(params: AIRequestParams): Promise<AIResponse> {
-  const { systemPrompt, userPrompt, apiKey } = params;
-  
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 4000,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      if (response.status === 401) {
-        return { success: false, error: 'API Key 无效，请检查后重试' };
-      } else if (response.status === 429) {
-        return { success: false, error: 'API 调用频率超限，请稍后重试' };
-      } else if (response.status === 402 || response.status === 400) {
-        return { success: false, error: 'API 账户余额不足或配额已用完' };
-      }
-      return { success: false, error: errorData.error?.message || `请求失败 (${response.status})` };
-    }
-
-    const data = await response.json();
-    const analysis = data.choices?.[0]?.message?.content;
-    
-    if (!analysis) {
-      return { success: false, error: 'AI 返回结果为空' };
-    }
-
-    return { success: true, analysis };
-  } catch (error: any) {
-    console.error('OpenAI API Error:', error);
-    return { success: false, error: error.message || '网络请求失败' };
-  }
-}
-
-/**
- * 统一的 AI 调用接口
- * 优先使用用户提供的 API Key，其次使用环境变量，最后尝试后端 API
- */
 export async function callAIService(params: {
   systemPrompt: string;
   userPrompt: string;
@@ -127,54 +18,26 @@ export async function callAIService(params: {
   apiKey?: string;
   userData: any;
   chartData: any;
+  callType?: 'report' | 'synastry' | 'kline' | 'chat';
+  metadata?: Record<string, any>;
 }): Promise<AIResponse> {
-  const { systemPrompt, userPrompt, model, apiKey, userData, chartData } = params;
-  
-  // 获取可用的 API Key：用户提供的 > 环境变量
-  const effectiveApiKey = apiKey || (model === 'deepseek' ? import.meta.env.VITE_DEEPSEEK_API_KEY : import.meta.env.VITE_OPENAI_API_KEY);
-  
-  // 如果有可用的 API Key，直接从前端调用
-  if (effectiveApiKey) {
-    console.log(`Using direct ${model} API call`);
-    
-    if (model === 'deepseek') {
-      return callDeepSeek({ systemPrompt, userPrompt, model, apiKey: effectiveApiKey });
-    } else {
-      return callOpenAI({ systemPrompt, userPrompt, model, apiKey: effectiveApiKey });
-    }
-  }
-  
-  // 否则尝试使用后端 API（需要服务器配置环境变量）
-  try {
-    const response = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        userData,
-        chartData,
-        systemPrompt,
-        userPrompt,
-        model,
-      }),
-    });
+  const { systemPrompt, userPrompt, callType, model, metadata } = params;
 
-    if (response.ok) {
-      const data = await response.json();
-      return { success: true, analysis: data.analysis };
-    } else {
-      const errorData = await response.json().catch(() => ({}));
-      return { 
-        success: false, 
-        error: errorData.error || '后端服务不可用，请使用自己的 API Key' 
-      };
-    }
+  try {
+    const data = await analyze({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      callType: callType || 'chat',
+      metadata: { source: 'frontend', model, ...(metadata || {}) },
+    });
+    return { success: true, analysis: data.message, remainingCalls: data.remainingCalls };
   } catch (error: any) {
     console.error('Backend API Error:', error);
     return { 
       success: false, 
-      error: '无法连接后端服务，请使用自己的 API Key' 
+      error: error.message || '无法连接后端服务' 
     };
   }
 }

@@ -31,3 +31,19 @@ body {
 .animate-slide-up {
   animation: slide-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+@keyframes caret-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.typewriter-caret {
+  display: inline-block;
+}
+
+.typewriter-caret::after {
+  content: '|';
+  margin-left: 2px;
+  animation: caret-blink 1s step-end infinite;
+  color: rgba(0, 0, 0, 0.35);
+}
