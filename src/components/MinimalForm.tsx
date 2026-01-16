@@ -172,14 +172,10 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
         setIsSearching(false);
     };
 
-    // 选中的城市信息（用于显示）
-    const [selectedCityDisplay, setSelectedCityDisplay] = useState<string>('');
-
     const handleSelectSearchResult = (city: GeoCity) => {
         setBirthPlace(city.name);
         // 显示选中的城市信息
         const displayText = `${city.name} (${city.adminName1}, ${city.countryName})`;
-        setSelectedCityDisplay(displayText);
         setSearchQuery(displayText);
         setLocationStatus({ 
             valid: true, 
