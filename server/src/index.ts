@@ -79,10 +79,15 @@ async function ensureDailyQuota(userId: string, userEmail: string | undefined | 
   return userData;
 }
 
-async function decrementRemainingCalls(userId: string, currentRemaining: number, retries = 2) {
+async function decrementRemainingCalls(
+  userId: string,
+  currentRemaining: number,
+  deductCount: number,
+  retries = 2
+) {
   const { data: updatedUser, error: updateError } = await supabase
     .from('users')
-    .update({ remaining_calls: currentRemaining - 1 })
+    .update({ remaining_calls: currentRemaining - deductCount })
     .eq('id', userId)
     .eq('remaining_calls', currentRemaining)
     .select('remaining_calls')
@@ -103,7 +108,7 @@ async function decrementRemainingCalls(userId: string, currentRemaining: number,
     throw new Error('调用次数已用完');
   }
 
-  return decrementRemainingCalls(userId, refreshedUser.remaining_calls, retries - 1);
+  return decrementRemainingCalls(userId, refreshedUser.remaining_calls, deductCount, retries - 1);
 }
 
 // ==================== 认证中间件 ====================
@@ -241,7 +246,10 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
     // 1. 检查并刷新每日剩余次数（如有需要）
     let userData = await ensureDailyQuota(userId, userEmail);
 
-    if (userData.remaining_calls <= 0) {
+    const requestedDeduct = Number(metadata?.deducted ?? 1);
+    const deductCount = Number.isFinite(requestedDeduct) ? Math.max(1, Math.floor(requestedDeduct)) : 1;
+
+    if (userData.remaining_calls <= 0 || userData.remaining_calls < deductCount) {
       return res.status(403).json({ 
         error: '调用次数已用完',
         message: '请关注我的小红书/公众号私信获取更多次数'
@@ -292,7 +300,7 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
     const aiMessage = result.choices[0].message.content;
 
     // 4. 扣除次数
-    const remainingCallsAfter = await decrementRemainingCalls(userId, userData.remaining_calls);
+    const remainingCallsAfter = await decrementRemainingCalls(userId, userData.remaining_calls, deductCount);
 
     // 5. 记录调用日志
     await supabase.from('call_logs').insert({
@@ -307,7 +315,7 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
         durationMs: Date.now() - startAt,
         success: true,
         requestId: requestId ?? null,
-        deducted: 1
+        deducted: deductCount
       }
     });
 

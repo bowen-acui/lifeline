@@ -464,10 +464,10 @@ ${h.analysis}`;
     }
 
     // 检查剩余次数
-    if (remainingCalls <= 0) {
+    if (remainingCalls < selectedHistories.length) {
       onChatMessagesChange([...chatMessages, { 
         role: 'assistant', 
-        content: '⚠️ 调用次数已用完，请关注我的小红书/公众号私信获取更多次数' 
+        content: `⚠️ 绘制${selectedHistories.length}份报告需要${selectedHistories.length}次调用，但剩余${remainingCalls}次。请关注我的小红书/公众号私信获取更多次数` 
       }]);
       return;
     }
@@ -745,7 +745,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
         userData,
         chartData,
         callType: 'kline',
-        metadata: { action: '绘制K线图' },
+        metadata: { action: '绘制K线图', deducted: reportCount },
       });
 
       if (result.success && result.analysis) {
