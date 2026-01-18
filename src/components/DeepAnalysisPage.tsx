@@ -532,11 +532,12 @@ ${h.analysis}`;
       return;
     }
 
+    const reportCount = selectedHistories.length;
     // 检查剩余次数
-    if (remainingCalls <= 0) {
+    if (remainingCalls <= 0 || remainingCalls < reportCount) {
       onChatMessagesChange([...chatMessages, { 
         role: 'assistant', 
-        content: '⚠️ 调用次数已用完，请关注我的小红书/公众号私信获取更多次数' 
+        content: `⚠️ 绘制${reportCount}份K线图需要${reportCount}次调用次数，但当前剩余${remainingCalls}次。` 
       }]);
       return;
     }
@@ -608,11 +609,12 @@ ${h.analysis}`;
       return;
     }
 
+    const reportCount = selectedHistories.length;
     // 检查剩余次数
-    if (remainingCalls <= 0) {
+    if (remainingCalls <= 0 || remainingCalls < reportCount) {
       onChatMessagesChange([...chatMessages, { 
         role: 'assistant', 
-        content: '⚠️ 调用次数已用完，请关注我的小红书/公众号私信获取更多次数' 
+        content: `⚠️ 绘制${reportCount}份K线图需要${reportCount}次调用次数，但当前剩余${remainingCalls}次。` 
       }]);
       return;
     }
@@ -676,18 +678,18 @@ ${h.analysis}`;
       return;
     }
 
+    const reportCount = selectedHistories.length;
     // 检查剩余次数
-    if (remainingCalls <= 0) {
+    if (remainingCalls <= 0 || remainingCalls < reportCount) {
       onChatMessagesChange([...chatMessages, { 
         role: 'assistant', 
-        content: '⚠️ 调用次数已用完，请关注我的小红书/公众号私信获取更多次数' 
+        content: `⚠️ 绘制${reportCount}份K线图需要${reportCount}次调用次数，但当前剩余${remainingCalls}次。` 
       }]);
       return;
     }
 
     onSetLoading(true);
     const { context, titles } = buildKLineContext();
-    const reportCount = selectedHistories.length;
     const systemPrompt = `${DEEP_ANALYST_SYSTEM_PROMPT}
 
 你需要基于命理分析生成人生K线图数据。请分析报告中的运势信息，生成从出生到80岁的运势数据。
