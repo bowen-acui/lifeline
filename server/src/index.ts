@@ -265,7 +265,7 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
   try {
     const userId = (req as any).user.id;
     const userEmail = (req as any).user.email;
-    const { messages, callType, metadata } = req.body;
+    const { messages, callType, metadata, analysisLog } = req.body;
     const messageCount = Array.isArray(messages) ? messages.length : 0;
     const totalChars = Array.isArray(messages)
       ? messages.reduce((sum, m) => sum + (m?.content?.length || 0), 0)
@@ -395,10 +395,45 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
       });
     }
 
+    let analysisId: string | null = null;
+    if (analysisLog?.analysisType && analysisLog?.inputData) {
+      const requestIdForAnalysis = analysisLog?.inputData?.requestId ?? requestId ?? null;
+      if (requestIdForAnalysis) {
+        const { data: existingAnalysis } = await supabase
+          .from('analysis_logs')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('input_data->>requestId', String(requestIdForAnalysis))
+          .limit(1)
+          .maybeSingle();
+        if (existingAnalysis?.id) {
+          analysisId = existingAnalysis.id;
+        }
+      }
+      if (!analysisId) {
+        const { data: inserted } = await supabase
+          .from('analysis_logs')
+          .insert({
+            user_id: userId,
+            analysis_type: analysisLog.analysisType,
+            input_data: analysisLog.inputData,
+            output_data: {
+              ...(analysisLog.outputData || {}),
+              analysis: aiMessage
+            }
+          })
+          .select('id')
+          .single();
+        analysisId = inserted?.id ?? null;
+      }
+    }
+
     res.json({ 
       message: aiMessage, 
       remainingCalls: remainingCallsAfter,
-      duplicate: false
+      duplicate: false,
+      analysisId: analysisId ?? undefined,
+      savedToHistory: Boolean(analysisId)
     });
 
   } catch (error: any) {

@@ -9,12 +9,19 @@ export interface AnalyzeRequest {
   messages: Array<{ role: string; content: string }>;
   callType: 'report' | 'synastry' | 'kline' | 'chat';
   metadata?: any;
+  analysisLog?: {
+    analysisType: string;
+    inputData: Record<string, any>;
+    outputData?: Record<string, any>;
+  };
 }
 
 export interface AnalyzeResponse {
   message: string;
   remainingCalls: number;
   duplicate?: boolean;
+  analysisId?: string;
+  savedToHistory?: boolean;
 }
 
 export interface UsageLogItem {

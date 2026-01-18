@@ -12,7 +12,6 @@ import { getCoordinates } from './lib/CityLookup';
 import { buildAnalysisPrompt } from './lib/AIPrompts';
 import { 
   getAnalysisHistory, 
-  saveAnalysis,
   deleteAnalysis,
   formatTimestamp,
   type AnalysisHistoryItem 
@@ -160,6 +159,11 @@ function App() {
   // const [authError, setAuthError] = useState<string | null>(null);
   // const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [analysisResume, setAnalysisResume] = useState<{
+    startedAt: number;
+    selectedSystems: ('bazi' | 'western' | 'ziwei')[];
+    signature: string;
+  } | null>(null);
 
   type RecentProfile = {
     name: string;
@@ -191,6 +195,33 @@ function App() {
 融合不是把三套系统混着算，而是：
 用它们各自最擅长的部分，拼成一个更爽、更完整的“人生叙事”。
 了解八字、星座、紫微，各可以看到人生的哪些切面。`;
+  const ANALYSIS_RESUME_KEY = 'lifeline_analysis_resume';
+  const buildUserSignature = (data: {
+    date: Date;
+    place: string;
+    name: string;
+    gender: '男' | '女';
+    orientation?: string;
+  }) => `${data.name || ''}|${data.gender}|${data.date.toISOString()}|${data.place}|${data.orientation || ''}`;
+  const buildReportTitle = (
+    system: 'bazi' | 'western' | 'ziwei',
+    data: {
+      date: Date;
+      name: string;
+      gender: '男' | '女';
+    }
+  ) => {
+    const systemNames: Record<'bazi' | 'western' | 'ziwei', string> = {
+      bazi: '八字',
+      western: '星座',
+      ziwei: '紫微',
+    };
+    const dateStr = data.date.toISOString().split('T')[0];
+    const genderStr = data.gender;
+    return data.name
+      ? `【${systemNames[system]}】${data.name}-${dateStr}-${genderStr}`
+      : `【${systemNames[system]}】${dateStr}-${genderStr}`;
+  };
   const createRequestId = () => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
       return crypto.randomUUID();
@@ -268,10 +299,11 @@ function App() {
           date: userData.date.toISOString()
         },
         step,
-        selectedCharts
+        selectedCharts,
+        selectedSystems,
       }));
     }
-  }, [userData, step, selectedCharts]);
+  }, [userData, step, selectedCharts, selectedSystems]);
 
   // 新增：初始化时恢复状态
   useEffect(() => {
@@ -299,12 +331,97 @@ function App() {
         if (parsed.selectedCharts) {
             setSelectedCharts(parsed.selectedCharts);
         }
+        if (parsed.selectedSystems) {
+            setSelectedSystems(parsed.selectedSystems);
+        }
       } catch (e) {
         console.error('Failed to restore state:', e);
         localStorage.removeItem('lifeline_pending_state');
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (!userData) return;
+    const raw = localStorage.getItem(ANALYSIS_RESUME_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as {
+        startedAt: number;
+        selectedSystems: ('bazi' | 'western' | 'ziwei')[];
+        signature: string;
+      };
+      if (parsed.signature !== buildUserSignature(userData)) {
+        localStorage.removeItem(ANALYSIS_RESUME_KEY);
+        return;
+      }
+      setAnalysisResume(parsed);
+      setIsAnalyzing(true);
+      if (parsed.selectedSystems?.length) {
+        setSelectedSystems(parsed.selectedSystems);
+      }
+    } catch (error) {
+      console.error('恢复分析状态失败:', error);
+      localStorage.removeItem(ANALYSIS_RESUME_KEY);
+    }
+  }, [userData]);
+
+  useEffect(() => {
+    if (!analysisResume || !user || !userData) return;
+    let isActive = true;
+    const maxAgeMs = 10 * 60 * 1000;
+    const pollIntervalMs = 8000;
+    const poll = async () => {
+      if (!isActive) return;
+      if (Date.now() - analysisResume.startedAt > maxAgeMs) {
+        setIsAnalyzing(false);
+        setPreviewError('AI分析生成超时，请重试');
+        clearAnalysisResume();
+        return;
+      }
+      try {
+        const history = await getAnalysisHistory();
+        const analysisTargets = analysisResume.selectedSystems.map((system) => ({
+          system,
+          reportTitle: buildReportTitle(system, userData),
+        }));
+        if (analysisTargets.length === 0) {
+          setIsAnalyzing(false);
+          clearAnalysisResume();
+          return;
+        }
+        const newMultiAnalysis: { bazi?: string; western?: string; ziwei?: string } = {};
+        let successCount = 0;
+        for (const target of analysisTargets) {
+          const fallback = history.find(
+            (item) =>
+              item.title === target.reportTitle &&
+              item.timestamp >= analysisResume.startedAt - 2 * 60 * 1000
+          );
+          if (fallback?.analysis) {
+            newMultiAnalysis[target.system] = fallback.analysis;
+            successCount++;
+          }
+        }
+        if (successCount === analysisTargets.length) {
+          setMultiSystemAnalysis(newMultiAnalysis);
+          setShowAnalysisReport(true);
+          setIsAnalyzing(false);
+          clearAnalysisResume();
+        }
+      } catch (recoveryError) {
+        console.error('恢复分析结果失败:', recoveryError);
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => {
+      void poll();
+    }, pollIntervalMs);
+    return () => {
+      isActive = false;
+      window.clearInterval(timer);
+    };
+  }, [analysisResume, user, userData]);
 
   // 保存对话历史到 localStorage
   useEffect(() => {
@@ -349,6 +466,28 @@ function App() {
       localStorage.setItem(key, JSON.stringify(profiles));
     } catch (error) {
       console.error('保存最近档案失败:', error);
+    }
+  };
+
+  const clearAnalysisResume = () => {
+    setAnalysisResume(null);
+    try {
+      localStorage.removeItem(ANALYSIS_RESUME_KEY);
+    } catch {
+      // ignore
+    }
+  };
+
+  const saveAnalysisResume = (payload: {
+    startedAt: number;
+    selectedSystems: ('bazi' | 'western' | 'ziwei')[];
+    signature: string;
+  }) => {
+    setAnalysisResume(payload);
+    try {
+      localStorage.setItem(ANALYSIS_RESUME_KEY, JSON.stringify(payload));
+    } catch (error) {
+      console.error('保存分析恢复状态失败:', error);
     }
   };
 
@@ -419,6 +558,8 @@ function App() {
     setShowAnalysisReport(false);
     setMultiSystemAnalysis({});
     setPreviewError(null);
+    setIsAnalyzing(false);
+    clearAnalysisResume();
     setSelectedSystems([]);
     setSelectedAspects([]);
     setShowExpandedOptions(false);
@@ -539,41 +680,35 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
       return;
     }
     
+    const analysisStartedAt = Date.now();
     setIsAnalyzing(true);
     setPreviewError(null);
     setMultiSystemAnalysis({});
-    
-    const birthYear = userData.date.getFullYear();
-    const currentAge = new Date().getFullYear() - birthYear;
-    
-    // 本地生成趋势数据与关键年份（不再调用预览AI）
-    const seed = `${userData.name}-${userData.gender}-${userData.date.toISOString()}-${userData.place}`;
-    const yearScores = generateYearScores({
-      birthYear,
-      seed,
-      selectedSystems
+    saveAnalysisResume({
+      startedAt: analysisStartedAt,
+      selectedSystems,
+      signature: buildUserSignature(userData),
     });
-    const generatedKeyYears = selectKeyYears(yearScores, 3, currentAge);
-    setKeyYears(generatedKeyYears);
 
-      const requestStartAt = Date.now();
-      const analysisTargets = selectedSystems.map((system) => {
-        const systemNames: Record<string, string> = {
-          bazi: '八字',
-          western: '星座',
-          ziwei: '紫微',
-        };
-        const dateStr = userData.date.toISOString().split('T')[0];
-        const genderStr = userData.gender;
-        const reportTitle = userData.name
-          ? `【${systemNames[system]}】${userData.name}-${dateStr}-${genderStr}`
-          : `【${systemNames[system]}】${dateStr}-${genderStr}`;
-        return {
-          system,
-          reportTitle,
-          requestId: createRequestId(),
-        };
+    try {
+      const birthYear = userData.date.getFullYear();
+      const currentAge = new Date().getFullYear() - birthYear;
+
+      // 本地生成趋势数据与关键年份（不再调用预览AI）
+      const seed = `${userData.name}-${userData.gender}-${userData.date.toISOString()}-${userData.place}`;
+      const yearScores = generateYearScores({
+        birthYear,
+        seed,
+        selectedSystems
       });
+      const generatedKeyYears = selectKeyYears(yearScores, 3, currentAge);
+      setKeyYears(generatedKeyYears);
+
+      const analysisTargets = selectedSystems.map((system) => ({
+        system,
+        reportTitle: buildReportTitle(system, userData),
+        requestId: createRequestId(),
+      }));
       
       // 并行为每个选中的体系生成分析
       const analysisPromises = analysisTargets.map(async ({ system, reportTitle, requestId }) => {
@@ -634,6 +769,26 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
           callType: 'report',
           metadata: { reportTitle },
           requestId,
+          analysisLog: {
+            analysisType: system,
+            inputData: {
+              userData: {
+                name: userData.name,
+                gender: userData.gender,
+                date: userData.date.toISOString().split('T')[0],
+                place: userData.place,
+              },
+              selectedSystems: [system],
+              analysisType: 'overall',
+              model: 'deepseek',
+              reportTitle,
+              requestId,
+            },
+            outputData: {
+              title: reportTitle,
+              keyYears: generatedKeyYears,
+            },
+          },
         });
 
         return { system, reportTitle, requestId, result: analysisResult };
@@ -662,7 +817,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
             const fallback = history.find(
               (item) =>
                 item.title === target.reportTitle &&
-                item.timestamp >= requestStartAt - 2 * 60 * 1000
+                item.timestamp >= analysisStartedAt - 2 * 60 * 1000
             );
             if (fallback?.analysis) {
               newMultiAnalysis[target.system] = fallback.analysis;
@@ -687,45 +842,24 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
       if (successCount > 0) {
         setMultiSystemAnalysis(newMultiAnalysis);
         setShowAnalysisReport(true);
-        
-        // 为每个体系分别保存历史记录
-        // 只有登录用户才保存历史
         if (user) {
-          for (const [sys, text] of Object.entries(newMultiAnalysis)) {
-            if (text) {
-              const matchedTarget = analysisTargets.find((t) => t.system === sys);
-              const title = matchedTarget?.reportTitle || '';
-              const dateStr = userData.date.toISOString().split('T')[0];
-              await saveAnalysis({
-                title,
-                userData: {
-                  name: userData.name,
-                  gender: userData.gender,
-                  date: dateStr,
-                  place: userData.place,
-                },
-                selectedSystems: [sys],
-                analysisType: 'overall',
-                model: 'deepseek',
-                analysis: text,
-                keyYears: generatedKeyYears,
-              });
-            }
-          }
-          
-          // 刷新历史列表
           const history = await getAnalysisHistory();
           setHistoryList(history);
         }
       } else {
         setPreviewError('AI分析失败，请重试');
       }
-    // 本地生成失败时提示
-    if (generatedKeyYears.length === 0) {
-      setPreviewError('生成失败，请重试');
+      // 本地生成失败时提示
+      if (generatedKeyYears.length === 0) {
+        setPreviewError('生成失败，请重试');
+      }
+    } catch (error) {
+      console.error('AI分析失败:', error);
+      setPreviewError('AI分析失败，请重试');
+    } finally {
+      setIsAnalyzing(false);
+      clearAnalysisResume();
     }
-
-    setIsAnalyzing(false);
   };
 
   // handleAuth 函数已注释，直接使用 .env 中的 API
@@ -839,6 +973,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                 setUserData(null);
                 setSelectedCharts([]);
                 localStorage.removeItem('lifeline_pending_state');
+                setIsAnalyzing(false);
+                clearAnalysisResume();
               }}
               className="px-4 py-2 text-xs font-serif text-ink/60 hover:text-accent border border-transparent transition-all"
             >
@@ -1319,6 +1455,16 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                     ))}
                   </div>
                   <p className="text-[10px] text-ink/40 mt-3">选择多个体系将分别生成独立的分析报告，为您提供多维度的命运解读</p>
+                  <p className="text-[10px] text-ink/40 mt-2">
+                    <a
+                      href="/article/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent hover:text-ink transition-colors"
+                    >
+                      了解八字、星座、紫微，各可以看到人生的哪些切面
+                    </a>
+                  </p>
                 </div>
 
                 {/* 2. 关心的方面 */}
@@ -1478,6 +1624,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                     {analyzingHint.length >= analyzingHintText.length && (
                       <a
                         href="/article/"
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="block mx-auto text-[12px] font-serif text-accent hover:text-ink transition-colors"
                       >
                         阅读：三种命理体系，会算出冲突的结果吗？→

@@ -9,6 +9,8 @@ interface AIResponse {
   remainingCalls?: number;
   duplicate?: boolean;
   requestId?: string;
+  analysisId?: string;
+  savedToHistory?: boolean;
 }
 
 import { analyze } from './ApiService';
@@ -23,8 +25,13 @@ export async function callAIService(params: {
   callType?: 'report' | 'synastry' | 'kline' | 'chat';
   metadata?: Record<string, any>;
   requestId?: string;
+  analysisLog?: {
+    analysisType: string;
+    inputData: Record<string, any>;
+    outputData?: Record<string, any>;
+  };
 }): Promise<AIResponse> {
-  const { systemPrompt, userPrompt, callType, model, metadata, requestId } = params;
+  const { systemPrompt, userPrompt, callType, model, metadata, requestId, analysisLog } = params;
 
   try {
     const data = await analyze({
@@ -34,8 +41,17 @@ export async function callAIService(params: {
       ],
       callType: callType || 'chat',
       metadata: { source: 'frontend', model, requestId, ...(metadata || {}) },
+      analysisLog
     });
-    return { success: true, analysis: data.message, remainingCalls: data.remainingCalls, duplicate: data.duplicate, requestId };
+    return {
+      success: true,
+      analysis: data.message,
+      remainingCalls: data.remainingCalls,
+      duplicate: data.duplicate,
+      requestId,
+      analysisId: data.analysisId,
+      savedToHistory: data.savedToHistory
+    };
   } catch (error: any) {
     console.error('Backend API Error:', error);
     return { 
