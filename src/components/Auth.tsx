@@ -450,12 +450,13 @@ export function UserInfo({ user, remainingCalls, onLogout, recentProfiles = [], 
                   const pendingAgeMs = Number.isNaN(createdAt) ? 0 : Date.now() - createdAt;
                   const isPending = status === 'pending' && pendingAgeMs < 10 * 60 * 1000;
                   const isStalePending = status === 'pending' && !isPending;
+                  const deducted = log.metadata?.deducted ?? 1;
                   return (
                   <div key={log.id} className="px-3 py-2 bg-ink/5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-serif text-ink">{formatUsageAction(log.call_type, log.metadata)}</span>
                       <span className="text-xs font-serif text-ink/60">
-                        -{log.metadata?.deducted ?? 1}
+                        {isPending ? '—' : `-${deducted}`}
                       </span>
                     </div>
                     {isPending && (

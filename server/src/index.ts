@@ -261,6 +261,7 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
   let didDeduct = false;
   let deepseekStatus: number | null = null;
   let deductCount = 1;
+  let stage = 'init';
   try {
     const userId = (req as any).user.id;
     const userEmail = (req as any).user.email;
@@ -305,6 +306,7 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
 
     let pendingLogId: string | null = null;
     if (requestId) {
+      stage = 'pending_log';
       const { data: pendingLog, error: pendingError } = await supabase
         .from('call_logs')
         .insert({
@@ -319,8 +321,9 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
             durationMs: 0,
             success: false,
             status: 'pending',
+            stage,
             requestId,
-            deducted: deductCount
+            deducted: 0
           }
         })
         .select('id')
@@ -330,6 +333,9 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
     }
 
     // 3. 调用DeepSeek API
+    stage = 'deepseek_request';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
     const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
@@ -341,8 +347,10 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
         messages,
         temperature: 0.7,
         stream: false
-      })
+      }),
+      signal: controller.signal
     });
+    clearTimeout(timeout);
 
     if (!response.ok) {
       deepseekStatus = response.status;
@@ -350,10 +358,12 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
     }
 
     deepseekStatus = response.status;
+    stage = 'deepseek_response';
     const result = await response.json();
     const aiMessage = result.choices[0].message.content;
 
     // 4. 扣除次数
+    stage = 'deduct';
     const remainingCallsAfter = await decrementRemainingCalls(userId, userData.remaining_calls, deductCount);
     didDeduct = true;
 
@@ -367,6 +377,7 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
       durationMs: Date.now() - startAt,
       success: true,
       status: 'success',
+      stage,
       deepseekStatus,
       requestId: requestId ?? null,
       deducted: deductCount
@@ -407,6 +418,7 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
           durationMs: Date.now() - startAt,
           success: false,
           status: 'failed',
+          stage,
           deepseekStatus,
           requestId: requestId ?? null,
           error: error?.message || 'unknown',
