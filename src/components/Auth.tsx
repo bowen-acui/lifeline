@@ -199,7 +199,6 @@ export function UserInfo({ user, remainingCalls, onLogout, recentProfiles = [], 
   const [isUsageLoading, setIsUsageLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const USAGE_CACHE_KEY = 'lifeline_usage_cache';
-  const USAGE_CACHE_TTL_MS = 2 * 60 * 1000;
   const formatSolarDate = (iso: string) => {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
