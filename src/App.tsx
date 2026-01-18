@@ -169,14 +169,9 @@ function App() {
     createdAt: number;
   };
   const RECENT_PROFILES_KEY = 'lifeline_recent_profiles';
-  const [recentProfiles, setRecentProfiles] = useState<RecentProfile[]>(() => {
-    try {
-      const raw = localStorage.getItem(RECENT_PROFILES_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
+  const getRecentProfilesKey = (userId?: string) =>
+    userId ? `${RECENT_PROFILES_KEY}_${userId}` : `${RECENT_PROFILES_KEY}_anon`;
+  const [recentProfiles, setRecentProfiles] = useState<RecentProfile[]>([]);
 
   // Refs for card screenshots
   const baziCardRef = useRef<HTMLDivElement>(null);
@@ -325,10 +320,21 @@ function App() {
     return () => clearInterval(timer);
   }, [isAnalyzing, analyzingHintText]);
 
+  useEffect(() => {
+    const key = getRecentProfilesKey(user?.id);
+    try {
+      const raw = localStorage.getItem(key);
+      setRecentProfiles(raw ? JSON.parse(raw) : []);
+    } catch {
+      setRecentProfiles([]);
+    }
+  }, [user]);
+
   const saveRecentProfiles = (profiles: RecentProfile[]) => {
     setRecentProfiles(profiles);
     try {
-      localStorage.setItem(RECENT_PROFILES_KEY, JSON.stringify(profiles));
+      const key = getRecentProfilesKey(user?.id);
+      localStorage.setItem(key, JSON.stringify(profiles));
     } catch (error) {
       console.error('保存最近档案失败:', error);
     }
