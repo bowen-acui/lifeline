@@ -446,7 +446,10 @@ export function UserInfo({ user, remainingCalls, onLogout, recentProfiles = [], 
               ) : (
                 usageLogs.map((log) => {
                   const status = log.metadata?.status;
-                  const isPending = status === 'pending';
+                  const createdAt = new Date(log.created_at).getTime();
+                  const pendingAgeMs = Number.isNaN(createdAt) ? 0 : Date.now() - createdAt;
+                  const isPending = status === 'pending' && pendingAgeMs < 10 * 60 * 1000;
+                  const isStalePending = status === 'pending' && !isPending;
                   return (
                   <div key={log.id} className="px-3 py-2 bg-ink/5">
                     <div className="flex items-center justify-between">
@@ -457,6 +460,9 @@ export function UserInfo({ user, remainingCalls, onLogout, recentProfiles = [], 
                     </div>
                     {isPending && (
                       <div className="text-[10px] text-accent font-serif mt-1">生成中…</div>
+                    )}
+                    {isStalePending && (
+                      <div className="text-[10px] text-ink/50 font-serif mt-1">可能失败，请重试</div>
                     )}
                     <div className="text-[10px] text-ink/40 font-serif mt-1">
                       {formatUsageTime(log.created_at)}
