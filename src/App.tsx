@@ -1429,7 +1429,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   </button>
                 </div>
                 {isAnalyzing && (
-                  <div className="mt-3 text-[10px] font-serif text-ink/40 text-center">
+                  <div className="mt-3 text-[12px] font-serif text-ink/40 text-center">
                     <span className="typewriter-caret">{analyzingHint}</span>
                   </div>
                 )}
