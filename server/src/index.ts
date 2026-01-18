@@ -332,6 +332,7 @@ app.get('/api/usage', authenticateUser, async (req, res) => {
       .from('call_logs')
       .select('id, call_type, created_at, metadata')
       .eq('user_id', userId)
+      .eq('metadata->>success', 'true')
       .order('created_at', { ascending: false })
       .limit(limit);
 
