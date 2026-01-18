@@ -7,6 +7,8 @@ interface AIResponse {
   analysis?: string;
   error?: string;
   remainingCalls?: number;
+  duplicate?: boolean;
+  requestId?: string;
 }
 
 import { analyze } from './ApiService';
@@ -20,8 +22,9 @@ export async function callAIService(params: {
   chartData: any;
   callType?: 'report' | 'synastry' | 'kline' | 'chat';
   metadata?: Record<string, any>;
+  requestId?: string;
 }): Promise<AIResponse> {
-  const { systemPrompt, userPrompt, callType, model, metadata } = params;
+  const { systemPrompt, userPrompt, callType, model, metadata, requestId } = params;
 
   try {
     const data = await analyze({
@@ -30,14 +33,15 @@ export async function callAIService(params: {
         { role: 'user', content: userPrompt },
       ],
       callType: callType || 'chat',
-      metadata: { source: 'frontend', model, ...(metadata || {}) },
+      metadata: { source: 'frontend', model, requestId, ...(metadata || {}) },
     });
-    return { success: true, analysis: data.message, remainingCalls: data.remainingCalls };
+    return { success: true, analysis: data.message, remainingCalls: data.remainingCalls, duplicate: data.duplicate, requestId };
   } catch (error: any) {
     console.error('Backend API Error:', error);
     return { 
       success: false, 
-      error: error.message || '无法连接后端服务' 
+      error: error.message || '无法连接后端服务',
+      requestId
     };
   }
 }

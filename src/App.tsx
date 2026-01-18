@@ -191,6 +191,12 @@ function App() {
 融合不是把三套系统混着算，而是：
 用它们各自最擅长的部分，拼成一个更爽、更完整的“人生叙事”。
 了解八字、星座、紫微，各可以看到人生的哪些切面。`;
+  const createRequestId = () => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+      return crypto.randomUUID();
+    }
+    return `req_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+  };
   // 命理体系选择
   const [selectedSystems, setSelectedSystems] = useState<('bazi' | 'western' | 'ziwei')[]>([]);
   // 多体系分析结果
@@ -549,9 +555,28 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
     });
     const generatedKeyYears = selectKeyYears(yearScores, 3, currentAge);
     setKeyYears(generatedKeyYears);
+
+      const requestStartAt = Date.now();
+      const analysisTargets = selectedSystems.map((system) => {
+        const systemNames: Record<string, string> = {
+          bazi: '八字',
+          western: '星座',
+          ziwei: '紫微',
+        };
+        const dateStr = userData.date.toISOString().split('T')[0];
+        const genderStr = userData.gender;
+        const reportTitle = userData.name
+          ? `【${systemNames[system]}】${userData.name}-${dateStr}-${genderStr}`
+          : `【${systemNames[system]}】${dateStr}-${genderStr}`;
+        return {
+          system,
+          reportTitle,
+          requestId: createRequestId(),
+        };
+      });
       
       // 并行为每个选中的体系生成分析
-      const analysisPromises = selectedSystems.map(async (system) => {
+      const analysisPromises = analysisTargets.map(async ({ system, reportTitle, requestId }) => {
         // 构建该体系的AI分析上下文
         const context = prepareAIAnalysisContext(
           generatedKeyYears, 
@@ -598,17 +623,6 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
         );
         
         const { systemPrompt, userPrompt } = buildAnalysisPrompt(context, 'deepseek', undefined, system);
-        const systemNames: Record<string, string> = {
-          bazi: '八字',
-          western: '星座',
-          ziwei: '紫微',
-        };
-        const dateStr = userData.date.toISOString().split('T')[0];
-        const genderStr = userData.gender;
-        const reportTitle = userData.name
-          ? `【${systemNames[system]}】${userData.name}-${dateStr}-${genderStr}`
-          : `【${systemNames[system]}】${dateStr}-${genderStr}`;
-
         // 直接调用 DeepSeek API
         const analysisResult = await callAIService({
           systemPrompt,
@@ -619,9 +633,10 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
           chartData,
           callType: 'report',
           metadata: { reportTitle },
+          requestId,
         });
 
-        return { system, result: analysisResult };
+        return { system, reportTitle, requestId, result: analysisResult };
       });
 
       // 等待所有分析完成
@@ -635,6 +650,27 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
         if (analysisResult.success && analysisResult.analysis) {
           newMultiAnalysis[system] = analysisResult.analysis;
           successCount++;
+        }
+      }
+
+      // 如果有失败或重复请求，尝试从历史中补偿
+      if (user && successCount < analysisTargets.length) {
+        try {
+          const history = await getAnalysisHistory();
+          for (const target of analysisTargets) {
+            if (newMultiAnalysis[target.system]) continue;
+            const fallback = history.find(
+              (item) =>
+                item.title === target.reportTitle &&
+                item.timestamp >= requestStartAt - 2 * 60 * 1000
+            );
+            if (fallback?.analysis) {
+              newMultiAnalysis[target.system] = fallback.analysis;
+              successCount++;
+            }
+          }
+        } catch (recoveryError) {
+          console.error('分析补偿失败:', recoveryError);
         }
       }
       
@@ -652,22 +688,14 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
         setMultiSystemAnalysis(newMultiAnalysis);
         setShowAnalysisReport(true);
         
-        const systemNames: Record<string, string> = {
-          bazi: '八字',
-          western: '星座',
-          ziwei: '紫微',
-        };
-        const dateStr = userData.date.toISOString().split('T')[0];
-        const genderStr = userData.gender;
-        
         // 为每个体系分别保存历史记录
         // 只有登录用户才保存历史
         if (user) {
           for (const [sys, text] of Object.entries(newMultiAnalysis)) {
             if (text) {
-              const title = userData.name
-                ? `【${systemNames[sys]}】${userData.name}-${dateStr}-${genderStr}`
-                : `【${systemNames[sys]}】${dateStr}-${genderStr}`;
+              const matchedTarget = analysisTargets.find((t) => t.system === sys);
+              const title = matchedTarget?.reportTitle || '';
+              const dateStr = userData.date.toISOString().split('T')[0];
               await saveAnalysis({
                 title,
                 userData: {

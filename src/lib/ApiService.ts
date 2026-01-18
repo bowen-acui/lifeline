@@ -14,6 +14,7 @@ export interface AnalyzeRequest {
 export interface AnalyzeResponse {
   message: string;
   remainingCalls: number;
+  duplicate?: boolean;
 }
 
 export interface UsageLogItem {

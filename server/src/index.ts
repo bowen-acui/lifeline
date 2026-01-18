@@ -248,7 +248,28 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
       });
     }
 
-    // 2. 调用DeepSeek API
+    // 2. 幂等：同一个 requestId 不重复扣费
+    const requestId = metadata?.requestId;
+    if (requestId) {
+      const { data: existing } = await supabase
+        .from('call_logs')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('metadata->>requestId', String(requestId))
+        .eq('metadata->>success', 'true')
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        return res.json({
+          message: '',
+          remainingCalls: userData.remaining_calls,
+          duplicate: true
+        });
+      }
+    }
+
+    // 3. 调用DeepSeek API
     const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
@@ -270,10 +291,10 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
     const result = await response.json();
     const aiMessage = result.choices[0].message.content;
 
-    // 3. 扣除次数
+    // 4. 扣除次数
     const remainingCallsAfter = await decrementRemainingCalls(userId, userData.remaining_calls);
 
-    // 4. 记录调用日志
+    // 5. 记录调用日志
     await supabase.from('call_logs').insert({
       user_id: userId,
       call_type: callType || 'unknown',
@@ -285,13 +306,15 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
         userAgent,
         durationMs: Date.now() - startAt,
         success: true,
+        requestId: requestId ?? null,
         deducted: 1
       }
     });
 
     res.json({ 
       message: aiMessage, 
-      remainingCalls: remainingCallsAfter 
+      remainingCalls: remainingCallsAfter,
+      duplicate: false
     });
 
   } catch (error: any) {
@@ -299,6 +322,7 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
     try {
       const userId = (req as any).user?.id;
       if (userId) {
+        const requestId = req.body?.metadata?.requestId;
         await supabase.from('call_logs').insert({
           user_id: userId,
           call_type: req.body?.callType || 'unknown',
@@ -312,6 +336,7 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
             userAgent,
             durationMs: Date.now() - startAt,
             success: false,
+            requestId: requestId ?? null,
             error: error?.message || 'unknown'
           }
         });
