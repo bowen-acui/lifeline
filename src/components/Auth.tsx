@@ -198,6 +198,8 @@ export function UserInfo({ user, remainingCalls, onLogout, recentProfiles = [], 
   const [usageLogs, setUsageLogs] = useState<UsageLogItem[]>([]);
   const [isUsageLoading, setIsUsageLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const USAGE_CACHE_KEY = 'lifeline_usage_cache';
+  const USAGE_CACHE_TTL_MS = 2 * 60 * 1000;
   const formatSolarDate = (iso: string) => {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
@@ -236,13 +238,36 @@ export function UserInfo({ user, remainingCalls, onLogout, recentProfiles = [], 
 
   const openUsagePanel = async () => {
     setShowUsagePanel(true);
+    const now = Date.now();
+    let hasCached = false;
+    try {
+      const cachedRaw = localStorage.getItem(USAGE_CACHE_KEY);
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw) as { userId?: string; fetchedAt?: number; logs?: UsageLogItem[] };
+        if (cached.userId === user.id && cached.logs) {
+          setUsageLogs(cached.logs);
+          hasCached = true;
+        }
+      }
+    } catch {
+      // ignore cache errors
+    }
+
     setIsUsageLoading(true);
     try {
       const data = await getUsageLogs(50);
-      setUsageLogs(data.logs || []);
+      const logs = data.logs || [];
+      setUsageLogs(logs);
+      try {
+        localStorage.setItem(USAGE_CACHE_KEY, JSON.stringify({ userId: user.id, fetchedAt: now, logs }));
+      } catch {
+        // ignore cache write errors
+      }
     } catch (error) {
       console.error('获取调用记录失败:', error);
-      setUsageLogs([]);
+      if (!hasCached) {
+        setUsageLogs([]);
+      }
     } finally {
       setIsUsageLoading(false);
     }
