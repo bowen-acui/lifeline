@@ -184,7 +184,137 @@ function App() {
   const [showExpandedOptions, setShowExpandedOptions] = useState(false);
   const [selectedAspects, setSelectedAspects] = useState<string[]>([]);
   const [showAnalysisReport, setShowAnalysisReport] = useState(false);
-  const analyzingHintText = '可以前往其他页面，报告将在后台生成，生成之后可以点击右上角的“深度分析”按钮查看，并选择对应报告进行深入分析。';
+  const analyzingHintText = `可以前往其他页面，报告将在后台生成，生成之后可以点击右上角的“深度分析”按钮查看，并选择对应报告进行深入分析。
+
+你知道吗？八字、紫微、星座可能算出不一样的结果，
+但它们不是互相打架，而是“看人生的不同切面”。
+融合不是把三套系统混着算，而是：
+用它们各自最擅长的部分，拼成一个更爽、更完整的“人生叙事”。
+了解八字、星座、紫微，各可以看到人生的哪些切面。`;
+  const theoryArticleContent = `三种命理体系，会算出冲突的结果吗？结果冲突时怎么办？
+八字、紫微、星座本来就可能算出不一样的结果，
+但它们不是互相打架，而是“看人生的不同切面”。
+融合不是把三套系统混着算，而是：
+用它们各自最擅长的部分，拼成一个更爽、更完整的“人生叙事”。
+
+## 一、它们究竟是「怎么算命的」？（底层逻辑差异）
+
+### 1️⃣ 八字（子平命理）——人生底盘 / 硬结构
+算的是什么？
+- 出生年、月、日、时 → 天干地支
+- 十神、五行、刑冲合害
+- 大运、流年
+本质是：一套“能量结构模型”。
+
+它关心的是：
+- 你这辈子擅长什么
+- 容易被什么事情卡住
+- 人生的起伏节奏（时间年龄围度，哪几年困难、哪几年能冲）
+
+📌 八字最像什么？
+CPU + 操作系统
+- 出厂配置就定了
+- 不好改，但可以优化使用方式
+
+📌 八字的优点
+- 稳定
+- 结构感强
+- 对“事业线、财富线、压力周期”很准
+
+📌 八字的缺点
+- 不太会讲故事
+- 对“具体事件”“人际细节”不够生动
+- 爽感偏理工男
+
+### 2️⃣ 紫微斗数——人生剧本 / 社会角色
+算的是什么？
+- 出生时间 → 命盘 12 宫
+- 主星、辅星、四化
+- 宫位之间的关系
+本质是：一套“人生舞台与角色系统”。
+
+它关心的是：
+- 你在社会中扮演什么角色
+- 权力、资源、贵人、小人
+- 婚姻、家庭、事业的互动关系
+
+📌 紫微最像什么？
+一部人生电视剧
+- 谁是主角
+- 谁是反派
+- 哪一宫是高光，哪一宫要修行
+
+📌 紫微的优点
+- 画面感极强
+- 对人际、权力、关系理解深入
+- 自我代入感高
+
+📌 紫微的缺点
+- 流派多
+- 解释空间大
+- 容易“说得都对，但不够落地”
+
+### 3️⃣ 西方星座 / 占星——人格操作说明书
+算的是什么？
+- 太阳 / 月亮 / 上升
+- 行星落座、相位
+- 行运、回归盘
+本质是：一套“心理与人格驱动模型”。
+
+它关心的是：
+- 你为什么会这么想
+- 情绪从哪里来
+- 你在关系里怎么爱、怎么逃
+
+📌 星座最像什么？
+用户手册 + 情绪地图
+
+📌 星座的优点
+- 情绪共鸣极强
+- 很“准感”
+- 特别适合讲：爱情、内心、自我成长
+
+📌 星座的缺点
+- 对现实成就（钱、权、阶层）偏弱
+- 太心理化，容易“自我感觉良好”
+
+---
+
+## 二、为什么三种会算出“不一样的结果”？这正常吗？
+完全正常，而且是必然的。
+因为它们在回答的根本不是同一个问题：
+
+体系 | 在回答什么问题
+--- | ---
+八字 | 你这一生的结构和节奏是什么？
+紫微 | 你会在什么舞台扮演什么角色？
+星座 | 你正在经历什么？如何感受、选择、和反应？
+
+📌 举个非常直观的例子：
+八字说你：七杀旺，压力大，事业心强
+紫微说你：官禄宫强，容易掌权
+星座说你：月亮巨蟹，内心其实很敏感
+
+这三句不冲突，反而拼起来更真实：
+- 外在强
+- 内在累
+- 扛事但不爱说
+
+总之，
+第一层：八字定「主线」
+- 人生主旋律
+- 成败节奏
+- 哪几年是硬仗
+
+第二层：紫微补「情节」
+- 为什么这几年这么累
+- 人是怎么来的、怎么走的
+- 是你问题，还是环境问题
+
+第三层：星座察「情感」
+- 你内心在纠结什么
+- 为什么你会这么想
+- 如何和自己和解`;
   // 命理体系选择
   const [selectedSystems, setSelectedSystems] = useState<('bazi' | 'western' | 'ziwei')[]>([]);
   // 多体系分析结果
@@ -207,6 +337,7 @@ function App() {
   });
   const [deepChatInput, setDeepChatInput] = useState('');
   const [isDeepChatLoading, setIsDeepChatLoading] = useState(false);
+  const [showTheoryArticle, setShowTheoryArticle] = useState(false);
   const refreshHistoryList = async () => {
     if (!user) return;
     const history = await getAnalysisHistory();
@@ -1439,8 +1570,17 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   </button>
                 </div>
                 {isAnalyzing && (
-                  <div className="mt-3 text-[12px] font-serif text-ink/40 text-center">
-                    <span className="typewriter-caret">{analyzingHint}</span>
+                  <div className="mt-3 text-[12px] font-serif text-ink/40 text-center space-y-2">
+                    <span className="typewriter-caret whitespace-pre-line">{analyzingHint}</span>
+                    {analyzingHint.length >= analyzingHintText.length && (
+                      <button
+                        type="button"
+                        onClick={() => setShowTheoryArticle(true)}
+                        className="block mx-auto text-[12px] font-serif text-accent hover:text-ink transition-colors"
+                      >
+                        阅读：三种命理体系，会算出冲突的结果吗？→
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -1603,6 +1743,38 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
           />,
           document.body
         )}
+
+      {showTheoryArticle && (
+        <div className="fixed inset-0 bg-ink/30 backdrop-blur-md z-[200] flex items-center justify-center p-4">
+          <div
+            className="bg-paper w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col border border-ink/10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center p-4 border-b border-ink/10 bg-gradient-to-r from-white to-paper/50">
+              <h2 className="text-lg font-serif font-bold">三种命理体系，会算出冲突的结果吗？</h2>
+              <button
+                onClick={() => setShowTheoryArticle(false)}
+                className="text-ink/40 hover:text-ink text-xl"
+                aria-label="关闭"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="prose prose-base max-w-none 
+                prose-headings:font-serif prose-headings:text-ink prose-headings:font-bold
+                prose-h2:text-xl prose-h2:mt-8 prose-h2:mb-4 prose-h2:border-b prose-h2:border-ink/10 prose-h2:pb-2
+                prose-h3:text-lg prose-h3:mt-6 prose-h3:mb-3
+                prose-p:text-ink/80 prose-p:leading-relaxed prose-p:my-3
+                prose-strong:text-ink prose-strong:font-semibold
+                prose-ul:my-4 prose-li:my-1
+                prose-table:text-sm">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{theoryArticleContent}</ReactMarkdown>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       </main>
       
       <footer className="mt-20 text-center text-[10px] font-mono text-ink/20">
