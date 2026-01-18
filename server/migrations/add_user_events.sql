@@ -35,3 +35,4 @@ CREATE INDEX IF NOT EXISTS idx_user_events_event_name ON user_events(event_name)
 CREATE INDEX IF NOT EXISTS idx_user_events_event_type ON user_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_user_events_created_at ON user_events(created_at DESC);
 
+

@@ -58,19 +58,32 @@ export async function getAnalysisHistory(): Promise<AnalysisHistoryItem[]> {
   }
 
   // 转换数据格式
-  return (data || []).map(row => ({
-    id: row.id,
-    timestamp: new Date(row.created_at).getTime(),
-    title: row.output_data?.title,
-    userData: row.input_data?.userData || {},
-    selectedSystems: row.input_data?.selectedSystems || [],
-    analysisType: row.input_data?.analysisType || 'overall',
-    targetYear: row.input_data?.targetYear,
-    model: row.input_data?.model || 'deepseek',
-    analysis: row.output_data?.analysis || '',
-    keyYears: row.output_data?.keyYears,
-    fullYearScores: row.output_data?.fullYearScores,
-  }));
+  return (data || [])
+    .filter(row => {
+      const hasUserData = Boolean(row.input_data?.userData);
+      const hasAnalysis = Boolean(row.output_data?.analysis);
+      const hasContentOnly = Boolean(row.output_data?.content && !row.output_data?.analysis);
+      // 过滤后端遗留的重复记录（仅包含 content 且缺少 userData）
+      if (!hasUserData && hasContentOnly) return false;
+      return hasUserData || hasAnalysis || hasContentOnly;
+    })
+    .map(row => {
+      const userData = row.input_data?.userData || {};
+      const titleFromMeta = row.input_data?.reportTitle;
+      return {
+        id: row.id,
+        timestamp: new Date(row.created_at).getTime(),
+        title: row.output_data?.title || titleFromMeta,
+        userData,
+        selectedSystems: row.input_data?.selectedSystems || [],
+        analysisType: row.input_data?.analysisType || 'overall',
+        targetYear: row.input_data?.targetYear,
+        model: row.input_data?.model || 'deepseek',
+        analysis: row.output_data?.analysis || row.output_data?.content || '',
+        keyYears: row.output_data?.keyYears,
+        fullYearScores: row.output_data?.fullYearScores,
+      };
+    });
 }
 
 /**

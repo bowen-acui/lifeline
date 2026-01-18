@@ -95,6 +95,12 @@ export default function DeepAnalysisPage({
   onDeleteRecentProfile,
   onHistoryListRefresh,
 }: DeepAnalysisPageProps) {
+  const formatHistoryTitle = useCallback((item: AnalysisHistoryItem) => {
+    if (item.title) return item.title;
+    const name = item.userData?.name?.trim() || '未命名';
+    const gender = item.userData?.gender?.trim() || '';
+    return [name, gender].filter(Boolean).join(' ');
+  }, []);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const compareButtonRef = useRef<HTMLButtonElement>(null);
@@ -102,6 +108,10 @@ export default function DeepAnalysisPage({
   const klineButtonRef = useRef<HTMLButtonElement>(null);
   const clearButtonRef = useRef<HTMLButtonElement>(null);
   const exposureTrackedRef = useRef<Set<string>>(new Set());
+  const [sidebarWidth, setSidebarWidth] = useState(256);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartXRef = useRef<number | null>(null);
+  const resizeStartWidthRef = useRef<number | null>(null);
   
   // 历史详情悬窗
   const [viewingHistoryItem, setViewingHistoryItem] = useState<AnalysisHistoryItem | null>(null);
@@ -179,6 +189,33 @@ export default function DeepAnalysisPage({
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
+
+  // 左侧栏拖拽调整宽度
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!isResizing || resizeStartXRef.current === null || resizeStartWidthRef.current === null) return;
+      const delta = event.clientX - resizeStartXRef.current;
+      const nextWidth = Math.min(420, Math.max(220, resizeStartWidthRef.current + delta));
+      setSidebarWidth(nextWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (!isResizing) return;
+      setIsResizing(false);
+      resizeStartXRef.current = null;
+      resizeStartWidthRef.current = null;
+    };
+
+    if (isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
 
   // 复制消息内容
   const handleCopy = async (content: string, index: number) => {
@@ -398,7 +435,7 @@ export default function DeepAnalysisPage({
   const buildContext = () => {
     if (selectedHistories.length === 0) return '';
     return selectedHistories.map(h => {
-      return `【${h.title || h.userData.name}】
+      return `【${formatHistoryTitle(h)}】
 ${h.analysis}`;
     }).join('\n\n---\n\n');
   };
@@ -407,7 +444,7 @@ ${h.analysis}`;
   const buildKLineContext = () => {
     if (selectedHistories.length === 0) return { context: '', titles: [] };
     const titles = selectedHistories.map(h => ({
-      title: h.title || `${h.userData.name} - ${h.userData.gender}`,
+      title: formatHistoryTitle(h),
       timestamp: formatTimestamp(h.timestamp)
     }));
     const context = selectedHistories.map((h, i) => {
@@ -516,7 +553,7 @@ ${h.analysis}`;
 请用简洁有力的语言总结。`;
 
     // 构建选中的报告标题列表
-    const selectedTitles = selectedHistories.map(h => h.title || `${h.userData.name}-${h.userData.gender}`).join('、');
+    const selectedTitles = selectedHistories.map(h => formatHistoryTitle(h)).join('、');
     const newMessages = [...chatMessages, { role: 'user' as const, content: `【对比分析】${selectedTitles}` }];
     onChatMessagesChange(newMessages);
 
@@ -582,7 +619,7 @@ ${h.analysis}`;
 
     onSetLoading(true);
     const context = buildContext();
-    const names = selectedHistories.map(h => h.title || h.userData.name).join('、');
+    const names = selectedHistories.map(h => formatHistoryTitle(h)).join('、');
     const systemPrompt = `${DEEP_ANALYST_SYSTEM_PROMPT}\n\n以下是需要进行合盘分析的命理报告：\n\n${context}`;
     const userPrompt = `请对${names}进行合盘分析，重点关注：
 1. 性格与行事风格的契合度：分析彼此之间的相似与互补
@@ -835,16 +872,32 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
       {/* 主体两栏布局 */}
       <div className="flex gap-0 flex-1 overflow-hidden">
         {/* 左栏 - 历史列表 */}
-        <div className="w-64 border-r border-ink/10 bg-paper flex flex-col">
+        <div
+          className="border-r border-ink/10 bg-paper flex flex-col relative"
+          style={{ width: `${sidebarWidth}px` }}
+        >
           {/* 新建命理档案按钮 */}
-          <div className="p-3 border-b border-ink/10 space-y-2">
+          <div className="h-16 px-3 border-b border-ink/10 flex items-center">
             <button
               onClick={onNewProfile}
-              className="w-full py-2 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors"
+              className="w-full h-9 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors"
             >
               + 新建命理档案
             </button>
           </div>
+          <div
+            className={`absolute top-0 right-0 h-full w-1.5 ${
+              isResizing ? 'bg-ink/10' : 'bg-transparent hover:bg-ink/10'
+            } cursor-col-resize transition-colors`}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              setIsResizing(true);
+              resizeStartXRef.current = event.clientX;
+              resizeStartWidthRef.current = sidebarWidth;
+            }}
+            aria-label="调整左侧栏宽度"
+            role="separator"
+          />
 
           {/* 历史列表 */}
           <div className="flex-1 overflow-y-auto">
@@ -891,7 +944,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                           }}
                           className="font-serif text-xs truncate text-left w-full text-accent underline decoration-accent/30 hover:decoration-accent transition-colors"
                         >
-                          {item.title || `${item.userData.name} ${item.userData.gender}`}
+                          {formatHistoryTitle(item)}
                         </button>
                         <p className="text-[10px] text-ink/40 font-mono mt-0.5">
                           {formatTimestamp(item.timestamp)}
@@ -935,7 +988,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
         {/* 右栏 - 对话框 */}
         <div className="flex-1 bg-paper flex flex-col overflow-hidden">
           {/* Shortcut 按钮区 */}
-          <div className="px-6 py-4 border-b border-ink/10 flex gap-3">
+          <div className="h-16 px-6 border-b border-ink/10 flex items-center gap-3">
             <button
               ref={compareButtonRef}
               onClick={(e) => {
@@ -949,7 +1002,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                 handleCompareAnalysis();
               }}
               disabled={isLoading}
-              className="px-4 py-2 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50"
+              className="h-9 px-4 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50"
             >
               对比分析
             </button>
@@ -966,7 +1019,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                 handleSynastryAnalysis();
               }}
               disabled={isLoading}
-              className="px-4 py-2 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50"
+              className="h-9 px-4 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50"
             >
               合盘
             </button>
@@ -983,7 +1036,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                 handleDrawKLine();
               }}
               disabled={isLoading}
-              className="px-4 py-2 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50"
+              className="h-9 px-4 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50"
             >
               绘制K线图
             </button>
@@ -1195,7 +1248,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
             <div className="flex justify-between items-center p-4 border-b border-ink/10">
               <div>
                 <h3 className="font-serif font-bold text-lg">
-                  {viewingHistoryItem.title || `${viewingHistoryItem.userData.name} - ${viewingHistoryItem.userData.gender}`}
+                  {formatHistoryTitle(viewingHistoryItem)}
                 </h3>
                 <p className="text-xs text-ink/40 font-mono mt-1">{formatTimestamp(viewingHistoryItem.timestamp)}</p>
               </div>

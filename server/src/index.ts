@@ -7,6 +7,8 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const DAILY_QUOTA = Number(process.env.DAILY_QUOTA || 19);
+const QUOTA_TIMEZONE = process.env.QUOTA_TIMEZONE || 'Asia/Shanghai';
 
 // Supabase客户端（使用service role key可以绕过RLS）
 const supabase = createClient(
@@ -19,6 +21,63 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
+
+function getQuotaDateString() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: QUOTA_TIMEZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+async function ensureDailyQuota(userId: string, userEmail: string | undefined | null) {
+  const today = getQuotaDateString();
+  let { data: userData, error: fetchError } = await supabase
+    .from('users')
+    .select('remaining_calls, last_quota_reset')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+
+  if (!userData) {
+    const { data: newUser, error: insertError } = await supabase
+      .from('users')
+      .insert({
+        id: userId,
+        email: userEmail,
+        remaining_calls: DAILY_QUOTA,
+        last_quota_reset: today
+      })
+      .select('remaining_calls, last_quota_reset')
+      .single();
+
+    if (insertError) throw insertError;
+    userData = newUser;
+  }
+
+  if (userData.last_quota_reset !== today) {
+    const { data: updatedUser, error: updateError } = await supabase
+      .from('users')
+      .update({
+        remaining_calls: DAILY_QUOTA,
+        last_quota_reset: today
+      })
+      .eq('id', userId)
+      .select('remaining_calls, last_quota_reset')
+      .single();
+
+    if (updateError) throw updateError;
+    userData = updatedUser;
+  }
+
+  return userData;
+}
 
 
 // ==================== 认证中间件 ====================
@@ -127,35 +186,10 @@ app.get('/api/quota', authenticateUser, async (req, res) => {
     const userId = (req as any).user.id;
     const userEmail = (req as any).user.email;
 
-    // 先尝试获取用户记录
-    let { data, error } = await supabase
-      .from('users')
-      .select('remaining_calls')
-      .eq('id', userId)
-      .maybeSingle(); // 使用 maybeSingle 避免多条记录错误
-
-    // 如果用户不存在，自动创建
-    if (!data) {
-      const { data: newUser, error: insertError } = await supabase
-        .from('users')
-        .insert({ 
-          id: userId, 
-          email: userEmail,
-          remaining_calls: 19 
-        })
-        .select('remaining_calls')
-        .single();
-
-      if (insertError) {
-        console.error('创建用户记录失败:', insertError);
-        throw insertError;
-      }
-
-      data = newUser;
-    }
+    const data = await ensureDailyQuota(userId, userEmail);
 
     res.json({ 
-      remainingCalls: data?.remaining_calls ?? 19,
+      remainingCalls: data?.remaining_calls ?? DAILY_QUOTA,
       userId 
     });
   } catch (error: any) {
@@ -178,28 +212,8 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
       ? messages.reduce((sum, m) => sum + (m?.content?.length || 0), 0)
       : 0;
 
-    // 1. 检查剩余次数（如果用户不存在则创建）
-    let { data: userData, error: fetchError } = await supabase
-      .from('users')
-      .select('remaining_calls')
-      .eq('id', userId)
-      .maybeSingle();
-
-    // 如果用户不存在，自动创建
-    if (!userData) {
-      const { data: newUser, error: insertError } = await supabase
-        .from('users')
-        .insert({ 
-          id: userId, 
-          email: userEmail,
-          remaining_calls: 19 
-        })
-        .select('remaining_calls')
-        .single();
-
-      if (insertError) throw insertError;
-      userData = newUser;
-    }
+    // 1. 检查并刷新每日剩余次数（如有需要）
+    let userData = await ensureDailyQuota(userId, userEmail);
 
     if (userData.remaining_calls <= 0) {
       return res.status(403).json({ 
@@ -252,16 +266,6 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
         success: true
       }
     });
-
-    // 5. 如果有分析内容，记录到analysis_logs
-    if (callType === 'report' && metadata) {
-      await supabase.from('analysis_logs').insert({
-        user_id: userId,
-        analysis_type: callType,
-        input_data: metadata,
-        output_data: { content: aiMessage }
-      });
-    }
 
     res.json({ 
       message: aiMessage, 

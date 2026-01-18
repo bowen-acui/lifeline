@@ -11,11 +11,15 @@ interface AuthModalProps {
 export function AuthModal({ onClose }: AuthModalProps) {
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [email, setEmail] = useState('');
+  const [isEmailLoading, setIsEmailLoading] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   const handleSocialLogin = async (provider: 'google' | 'github') => {
     try {
       setLoadingProvider(provider);
       setError('');
+      setEmailSent(false);
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
@@ -30,6 +34,34 @@ export function AuthModal({ onClose }: AuthModalProps) {
       console.error('Login error:', err);
       setError(err.message || '登录失败，请稍后重试');
       setLoadingProvider(null);
+    }
+  };
+
+  const handleEmailLogin = async () => {
+    try {
+      const trimmed = email.trim();
+      if (!trimmed) {
+        setError('请输入邮箱地址');
+        return;
+      }
+      setIsEmailLoading(true);
+      setError('');
+      setEmailSent(false);
+
+      const { error } = await supabase.auth.signInWithOtp({
+        email: trimmed,
+        options: {
+          emailRedirectTo: `${window.location.origin}/`,
+        },
+      });
+
+      if (error) throw error;
+      setEmailSent(true);
+    } catch (err: any) {
+      console.error('Email login error:', err);
+      setError(err.message || '邮件发送失败，请稍后重试');
+    } finally {
+      setIsEmailLoading(false);
     }
   };
 
@@ -66,6 +98,31 @@ export function AuthModal({ onClose }: AuthModalProps) {
           )}
 
           <div className="space-y-3">
+            <div className="border border-ink/10 p-3">
+              <div className="flex items-center gap-2">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="邮箱登录/注册"
+                  className="flex-1 text-xs font-mono border border-ink/20 px-3 py-2 bg-white focus:border-accent focus:outline-none"
+                  disabled={isEmailLoading || loadingProvider !== null}
+                />
+                <button
+                  onClick={handleEmailLogin}
+                  disabled={isEmailLoading || loadingProvider !== null}
+                  className="px-3 py-2 text-xs font-mono border border-ink/20 text-ink/70 hover:border-accent hover:text-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isEmailLoading ? '发送中...' : '发送验证'}
+                </button>
+              </div>
+              {emailSent && (
+                <div className="mt-2 text-[10px] text-ink/50 font-mono">
+                  验证邮件已发送，请点击邮箱里的登录链接完成验证。
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => handleSocialLogin('google')}
               disabled={loadingProvider !== null}
@@ -270,7 +327,7 @@ export function UserInfo({ user, remainingCalls, onLogout, recentProfiles = [], 
                     e.stopPropagation();
                     openUsagePanel();
                   }}
-                  className="text-sm text-ink font-serif hover:text-ink/70 transition-colors"
+                  className="text-sm text-ink font-serif border border-transparent px-2 py-0.5 hover:text-ink hover:border-ink/20 hover:bg-ink/5 transition-all"
                   aria-label="查看扣分明细"
                 >
                   {remainingCalls} / 19

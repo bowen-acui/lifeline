@@ -218,6 +218,13 @@ function App() {
     setHistoryList(history);
   };
 
+  const formatHistoryTitle = (item: AnalysisHistoryItem) => {
+    if (item.title) return item.title;
+    const name = item.userData?.name?.trim() || '未命名';
+    const gender = item.userData?.gender?.trim() || '';
+    return [name, gender].filter(Boolean).join(' ');
+  };
+
   // 加载历史记录（只有登录用户才有历史）
   useEffect(() => {
     if (user) {
@@ -800,9 +807,9 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
           {/* 右侧：历史和登录 */}
           <div className="flex items-center gap-3">
             {/* 深度求解入口（仅登录用户） */}
-            {user && historyList.length > 0 && (
+            {user && (
               <div className="text-xs font-serif text-ink/50 flex items-center gap-0">
-                <span>已生成{historyList.length}份档案，</span>
+                <span>已生成{historyList.length}份报告，</span>
                 <button
                   onClick={(e) => {
                     void trackEvent({
@@ -915,7 +922,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   </button>
                 </div>
                 <div className="mb-6">
-                  <h3 className="font-serif font-bold text-lg">{viewingHistoryItem.userData.name} - {viewingHistoryItem.userData.gender}</h3>
+                  <h3 className="font-serif font-bold text-lg">{formatHistoryTitle(viewingHistoryItem)}</h3>
                   <p className="text-xs text-ink/40 font-mono mt-1">{formatTimestamp(viewingHistoryItem.timestamp)}</p>
                 </div>
                                 
@@ -945,7 +952,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                       >
                         <div className="flex-1 min-w-0">
                           <p className="font-serif text-sm truncate">
-                            {item.title || `${item.userData.name} - ${item.userData.gender === 'male' ? '男' : '女'}`}
+                            {formatHistoryTitle(item)}
                           </p>
                           <p className="text-xs text-ink/40 font-mono">{formatTimestamp(item.timestamp)}</p>
                         </div>
@@ -967,7 +974,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   }}
                   className="w-full py-2.5 bg-ink text-paper font-serif text-sm hover:bg-ink/90 transition-all"
                 >
-                  深度求解 ({historyList.length}) →
+                  深度求解 →
                 </button>
               </div>
             )}
@@ -993,8 +1000,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   className={`cursor-pointer transition-all duration-300 ${
                     selectedCharts.includes('bazi') 
                       ? 'ring-2 ring-accent' 
-                      : 'opacity-70 hover:opacity-100'
-                  }`}
+                      : 'opacity-80 hover:opacity-100'
+                  } hover:-translate-y-0.5 hover:shadow-[0_16px_50px_rgba(0,0,0,0.08)]`}
                 >
                   <DataCard title="01. 四柱八字 (Bazi)">
                   <div className="grid grid-cols-4 gap-2 text-center mb-4">
@@ -1097,8 +1104,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   className={`cursor-pointer transition-all duration-300 ${
                     selectedCharts.includes('western') 
                       ? 'ring-2 ring-accent' 
-                      : 'opacity-70 hover:opacity-100'
-                  }`}
+                      : 'opacity-80 hover:opacity-100'
+                  } hover:-translate-y-0.5 hover:shadow-[0_16px_50px_rgba(0,0,0,0.08)]`}
                 >
                   <DataCard title="02. 天体坐标 (Western)">
                   {/* Main Luminaries - Sun, Moon, Ascendant */}
@@ -1161,8 +1168,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   className={`cursor-pointer transition-all duration-300 ${
                     selectedCharts.includes('ziwei') 
                       ? 'ring-2 ring-accent' 
-                      : 'opacity-70 hover:opacity-100'
-                  }`}
+                      : 'opacity-80 hover:opacity-100'
+                  } hover:-translate-y-0.5 hover:shadow-[0_16px_50px_rgba(0,0,0,0.08)]`}
                 >
                 <DataCard title="03. 紫微斗数 (Ziwei)">
                  <div className="grid grid-cols-4 gap-2 text-xs">
@@ -1525,7 +1532,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                       }}
                       className="px-8 py-3 bg-ink text-paper font-serif text-sm hover:bg-ink/90 transition-all"
                     >
-                      深度求解 ({historyList.length}) →
+                      深度求解 →
                     </button>
                   </div>
                 )}
