@@ -151,6 +151,9 @@ export async function trackEvent(params: TrackEventParams): Promise<void> {
       keepalive: true,
     });
   } catch (error) {
+    if (error && typeof error === 'object' && (error as { name?: string }).name === 'AbortError') {
+      return;
+    }
     console.warn('Tracking failed:', error);
   }
 }

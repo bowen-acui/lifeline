@@ -79,6 +79,32 @@ async function ensureDailyQuota(userId: string, userEmail: string | undefined | 
   return userData;
 }
 
+async function decrementRemainingCalls(userId: string, currentRemaining: number, retries = 2) {
+  const { data: updatedUser, error: updateError } = await supabase
+    .from('users')
+    .update({ remaining_calls: currentRemaining - 1 })
+    .eq('id', userId)
+    .eq('remaining_calls', currentRemaining)
+    .select('remaining_calls')
+    .maybeSingle();
+
+  if (updateError) throw updateError;
+  if (updatedUser) return updatedUser.remaining_calls;
+  if (retries <= 0) throw new Error('扣减次数失败，请稍后重试');
+
+  const { data: refreshedUser, error: refreshError } = await supabase
+    .from('users')
+    .select('remaining_calls')
+    .eq('id', userId)
+    .single();
+
+  if (refreshError || !refreshedUser) throw refreshError;
+  if (refreshedUser.remaining_calls <= 0) {
+    throw new Error('调用次数已用完');
+  }
+
+  return decrementRemainingCalls(userId, refreshedUser.remaining_calls, retries - 1);
+}
 
 // ==================== 认证中间件 ====================
 async function authenticateUser(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -245,12 +271,7 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
     const aiMessage = result.choices[0].message.content;
 
     // 3. 扣除次数
-    const { error: updateError } = await supabase
-      .from('users')
-      .update({ remaining_calls: userData.remaining_calls - 1 })
-      .eq('id', userId);
-
-    if (updateError) throw updateError;
+    const remainingCallsAfter = await decrementRemainingCalls(userId, userData.remaining_calls);
 
     // 4. 记录调用日志
     await supabase.from('call_logs').insert({
@@ -263,13 +284,14 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
         ip: requestIp,
         userAgent,
         durationMs: Date.now() - startAt,
-        success: true
+        success: true,
+        deducted: 1
       }
     });
 
     res.json({ 
       message: aiMessage, 
-      remainingCalls: userData.remaining_calls - 1 
+      remainingCalls: remainingCallsAfter 
     });
 
   } catch (error: any) {

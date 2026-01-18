@@ -27,6 +27,12 @@ export interface UsageLogResponse {
   logs: UsageLogItem[];
 }
 
+export function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const name = (error as { name?: string }).name;
+  return name === 'AbortError';
+}
+
 
 async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const { data: { session } } = await (await import('./AuthService')).supabase.auth.getSession();

@@ -18,7 +18,7 @@ import {
   type AnalysisHistoryItem 
 } from './lib/CloudHistoryService';
 import { AuthModal, UserInfo, useAuth } from './components/Auth';
-import { getQuota, logUserInput } from './lib/ApiService';
+import { getQuota, isAbortError, logUserInput } from './lib/ApiService';
 import { callAIService } from './lib/AIService';
 import { trackEvent, trackPageView } from './lib/Tracking';
 
@@ -239,7 +239,11 @@ function App() {
     if (user) {
       getQuota()
         .then(data => setRemainingCalls(data.remainingCalls))
-        .catch(err => console.error('获取quota失败:', err));
+        .catch(err => {
+          if (!isAbortError(err)) {
+            console.error('获取quota失败:', err);
+          }
+        });
     }
   }, [user]);
 
