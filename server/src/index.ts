@@ -111,6 +111,30 @@ async function decrementRemainingCalls(
   return decrementRemainingCalls(userId, refreshedUser.remaining_calls, deductCount, retries - 1);
 }
 
+async function refundRemainingCalls(userId: string, addCount: number, retries = 2) {
+  const { data: current, error: fetchError } = await supabase
+    .from('users')
+    .select('remaining_calls')
+    .eq('id', userId)
+    .single();
+
+  if (fetchError || !current) throw fetchError;
+
+  const { data: updatedUser, error: updateError } = await supabase
+    .from('users')
+    .update({ remaining_calls: current.remaining_calls + addCount })
+    .eq('id', userId)
+    .eq('remaining_calls', current.remaining_calls)
+    .select('remaining_calls')
+    .maybeSingle();
+
+  if (updateError) throw updateError;
+  if (updatedUser) return updatedUser.remaining_calls;
+  if (retries <= 0) throw new Error('退回次数失败，请稍后重试');
+
+  return refundRemainingCalls(userId, addCount, retries - 1);
+}
+
 // ==================== 认证中间件 ====================
 async function authenticateUser(req: express.Request, res: express.Response, next: express.NextFunction) {
   const authHeader = req.headers.authorization;
@@ -234,6 +258,9 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
   const startAt = Date.now();
   const requestIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
   const userAgent = req.headers['user-agent'] || '';
+  let didDeduct = false;
+  let deepseekStatus: number | null = null;
+  let deductCount = 1;
   try {
     const userId = (req as any).user.id;
     const userEmail = (req as any).user.email;
@@ -242,12 +269,11 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
     const totalChars = Array.isArray(messages)
       ? messages.reduce((sum, m) => sum + (m?.content?.length || 0), 0)
       : 0;
-
     // 1. 检查并刷新每日剩余次数（如有需要）
     let userData = await ensureDailyQuota(userId, userEmail);
 
     const requestedDeduct = Number(metadata?.deducted ?? 1);
-    const deductCount = Number.isFinite(requestedDeduct) ? Math.max(1, Math.floor(requestedDeduct)) : 1;
+    deductCount = Number.isFinite(requestedDeduct) ? Math.max(1, Math.floor(requestedDeduct)) : 1;
 
     if (userData.remaining_calls <= 0 || userData.remaining_calls < deductCount) {
       return res.status(403).json({ 
@@ -319,14 +345,17 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
     });
 
     if (!response.ok) {
+      deepseekStatus = response.status;
       throw new Error(`DeepSeek API错误: ${response.statusText}`);
     }
 
+    deepseekStatus = response.status;
     const result = await response.json();
     const aiMessage = result.choices[0].message.content;
 
     // 4. 扣除次数
     const remainingCallsAfter = await decrementRemainingCalls(userId, userData.remaining_calls, deductCount);
+    didDeduct = true;
 
     // 5. 记录调用日志
     const successMetadata = {
@@ -338,6 +367,7 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
       durationMs: Date.now() - startAt,
       success: true,
       status: 'success',
+      deepseekStatus,
       requestId: requestId ?? null,
       deducted: deductCount
     };
@@ -366,7 +396,7 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
       const userId = (req as any).user?.id;
       if (userId) {
         const requestId = req.body?.metadata?.requestId;
-        const failureMetadata = {
+        const failureMetadata: Record<string, any> = {
           ...(req.body?.metadata || {}),
           messageCount: Array.isArray(req.body?.messages) ? req.body.messages.length : 0,
           totalChars: Array.isArray(req.body?.messages)
@@ -377,9 +407,20 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
           durationMs: Date.now() - startAt,
           success: false,
           status: 'failed',
+          deepseekStatus,
           requestId: requestId ?? null,
-          error: error?.message || 'unknown'
+          error: error?.message || 'unknown',
+          deducted: 0,
+          refunded: false
         };
+        if (didDeduct) {
+          try {
+            await refundRemainingCalls(userId, deductCount);
+            failureMetadata.refunded = true;
+          } catch (refundError: any) {
+            console.error('退回次数失败:', refundError);
+          }
+        }
         if (requestId) {
           const { data: existing } = await supabase
             .from('call_logs')
