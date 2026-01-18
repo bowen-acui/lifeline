@@ -532,12 +532,12 @@ ${h.analysis}`;
       return;
     }
 
-    const reportCount = selectedHistories.length;
+    const requiredCalls = 1;
     // 检查剩余次数
-    if (remainingCalls <= 0 || remainingCalls < reportCount) {
+    if (remainingCalls <= 0 || remainingCalls < requiredCalls) {
       onChatMessagesChange([...chatMessages, { 
         role: 'assistant', 
-        content: `⚠️ 绘制${reportCount}份K线图需要${reportCount}次调用次数，但当前剩余${remainingCalls}次。` 
+        content: `⚠️ 合盘分析需要${requiredCalls}次调用次数，但当前剩余${remainingCalls}次。` 
       }]);
       return;
     }
@@ -609,12 +609,12 @@ ${h.analysis}`;
       return;
     }
 
-    const reportCount = selectedHistories.length;
+    const requiredCalls = 1;
     // 检查剩余次数
-    if (remainingCalls <= 0 || remainingCalls < reportCount) {
+    if (remainingCalls <= 0 || remainingCalls < requiredCalls) {
       onChatMessagesChange([...chatMessages, { 
         role: 'assistant', 
-        content: `⚠️ 绘制${reportCount}份K线图需要${reportCount}次调用次数，但当前剩余${remainingCalls}次。` 
+        content: `⚠️ 合盘分析需要${requiredCalls}次调用次数，但当前剩余${remainingCalls}次。` 
       }]);
       return;
     }
@@ -643,7 +643,7 @@ ${h.analysis}`;
         userData,
         chartData,
         callType: 'synastry',
-        metadata: { action: '合盘分析' },
+        metadata: { action: '合盘分析', deducted: requiredCalls },
       });
 
       if (result.success && result.analysis) {

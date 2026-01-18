@@ -87,6 +87,26 @@ export async function getAnalysisHistory(): Promise<AnalysisHistoryItem[]> {
 }
 
 /**
+ * 获取当前用户的报告总数
+ */
+export async function getAnalysisHistoryCount(): Promise<number> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return 0;
+
+  const { count, error } = await supabase
+    .from('analysis_logs')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id);
+
+  if (error) {
+    console.error('Failed to load analysis history count:', error);
+    return 0;
+  }
+
+  return count ?? 0;
+}
+
+/**
  * 保存新的分析记录到云端
  */
 export async function saveAnalysis(

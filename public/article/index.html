@@ -103,7 +103,7 @@
   <body>
     <div class="page">
       <header>
-        <a href="/">← 返回</a>
+        <a href="/" id="back-link">← 返回</a>
         <h1>LIFELINE</h1>
         <span style="width: 40px;"></span>
       </header>
@@ -268,6 +268,18 @@
 
       <div class="footer">© 2026 LIFELINE</div>
     </div>
+    <script>
+      (function () {
+        var backLink = document.getElementById('back-link');
+        if (!backLink) return;
+        backLink.addEventListener('click', function (event) {
+          if (window.history.length > 1) {
+            event.preventDefault();
+            window.history.back();
+          }
+        });
+      })();
+    </script>
   </body>
 </html>
 
