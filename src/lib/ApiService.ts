@@ -21,7 +21,7 @@ export interface UsageLogItem {
   id: string;
   call_type: string;
   created_at: string;
-  metadata?: { deducted?: number; action?: string; reportTitle?: string };
+  metadata?: { deducted?: number; action?: string; reportTitle?: string; status?: 'pending' | 'success' | 'failed' };
 }
 
 export interface UsageLogResponse {

@@ -444,7 +444,10 @@ export function UserInfo({ user, remainingCalls, onLogout, recentProfiles = [], 
               ) : usageLogs.length === 0 ? (
                 <div className="text-xs text-ink/30 font-serif">暂无记录</div>
               ) : (
-                usageLogs.map((log) => (
+                usageLogs.map((log) => {
+                  const status = log.metadata?.status;
+                  const isPending = status === 'pending';
+                  return (
                   <div key={log.id} className="px-3 py-2 bg-ink/5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-serif text-ink">{formatUsageAction(log.call_type, log.metadata)}</span>
@@ -452,11 +455,15 @@ export function UserInfo({ user, remainingCalls, onLogout, recentProfiles = [], 
                         -{log.metadata?.deducted ?? 1}
                       </span>
                     </div>
+                    {isPending && (
+                      <div className="text-[10px] text-accent font-serif mt-1">生成中…</div>
+                    )}
                     <div className="text-[10px] text-ink/40 font-serif mt-1">
                       {formatUsageTime(log.created_at)}
                     </div>
                   </div>
-                ))
+                );
+                })
               )}
             </div>
           </div>

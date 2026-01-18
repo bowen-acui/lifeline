@@ -277,6 +277,32 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
       }
     }
 
+    let pendingLogId: string | null = null;
+    if (requestId) {
+      const { data: pendingLog, error: pendingError } = await supabase
+        .from('call_logs')
+        .insert({
+          user_id: userId,
+          call_type: callType || 'unknown',
+          metadata: {
+            ...(metadata || {}),
+            messageCount,
+            totalChars,
+            ip: requestIp,
+            userAgent,
+            durationMs: 0,
+            success: false,
+            status: 'pending',
+            requestId,
+            deducted: deductCount
+          }
+        })
+        .select('id')
+        .single();
+      if (pendingError) throw pendingError;
+      pendingLogId = pendingLog?.id ?? null;
+    }
+
     // 3. 调用DeepSeek API
     const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
@@ -303,21 +329,30 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
     const remainingCallsAfter = await decrementRemainingCalls(userId, userData.remaining_calls, deductCount);
 
     // 5. 记录调用日志
-    await supabase.from('call_logs').insert({
-      user_id: userId,
-      call_type: callType || 'unknown',
-      metadata: {
-        ...(metadata || {}),
-        messageCount,
-        totalChars,
-        ip: requestIp,
-        userAgent,
-        durationMs: Date.now() - startAt,
-        success: true,
-        requestId: requestId ?? null,
-        deducted: deductCount
-      }
-    });
+    const successMetadata = {
+      ...(metadata || {}),
+      messageCount,
+      totalChars,
+      ip: requestIp,
+      userAgent,
+      durationMs: Date.now() - startAt,
+      success: true,
+      status: 'success',
+      requestId: requestId ?? null,
+      deducted: deductCount
+    };
+    if (pendingLogId) {
+      await supabase
+        .from('call_logs')
+        .update({ metadata: successMetadata })
+        .eq('id', pendingLogId);
+    } else {
+      await supabase.from('call_logs').insert({
+        user_id: userId,
+        call_type: callType || 'unknown',
+        metadata: successMetadata
+      });
+    }
 
     res.json({ 
       message: aiMessage, 
@@ -331,23 +366,45 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
       const userId = (req as any).user?.id;
       if (userId) {
         const requestId = req.body?.metadata?.requestId;
-        await supabase.from('call_logs').insert({
-          user_id: userId,
-          call_type: req.body?.callType || 'unknown',
-          metadata: {
-            ...(req.body?.metadata || {}),
-            messageCount: Array.isArray(req.body?.messages) ? req.body.messages.length : 0,
-            totalChars: Array.isArray(req.body?.messages)
-              ? req.body.messages.reduce((sum: number, m: any) => sum + (m?.content?.length || 0), 0)
-              : 0,
-            ip: requestIp,
-            userAgent,
-            durationMs: Date.now() - startAt,
-            success: false,
-            requestId: requestId ?? null,
-            error: error?.message || 'unknown'
+        const failureMetadata = {
+          ...(req.body?.metadata || {}),
+          messageCount: Array.isArray(req.body?.messages) ? req.body.messages.length : 0,
+          totalChars: Array.isArray(req.body?.messages)
+            ? req.body.messages.reduce((sum: number, m: any) => sum + (m?.content?.length || 0), 0)
+            : 0,
+          ip: requestIp,
+          userAgent,
+          durationMs: Date.now() - startAt,
+          success: false,
+          status: 'failed',
+          requestId: requestId ?? null,
+          error: error?.message || 'unknown'
+        };
+        if (requestId) {
+          const { data: existing } = await supabase
+            .from('call_logs')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('metadata->>requestId', String(requestId))
+            .eq('metadata->>status', 'pending')
+            .limit(1)
+            .maybeSingle();
+          if (existing?.id) {
+            await supabase.from('call_logs').update({ metadata: failureMetadata }).eq('id', existing.id);
+          } else {
+            await supabase.from('call_logs').insert({
+              user_id: userId,
+              call_type: req.body?.callType || 'unknown',
+              metadata: failureMetadata
+            });
           }
-        });
+        } else {
+          await supabase.from('call_logs').insert({
+            user_id: userId,
+            call_type: req.body?.callType || 'unknown',
+            metadata: failureMetadata
+          });
+        }
       }
     } catch (logError) {
       console.error('记录调用日志失败:', logError);
@@ -365,7 +422,7 @@ app.get('/api/usage', authenticateUser, async (req, res) => {
       .from('call_logs')
       .select('id, call_type, created_at, metadata')
       .eq('user_id', userId)
-      .eq('metadata->>success', 'true')
+      .or('metadata->>success.eq.true,metadata->>status.eq.pending')
       .order('created_at', { ascending: false })
       .limit(limit);
 
