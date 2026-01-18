@@ -66,7 +66,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/20 backdrop-blur-sm p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-ink/20 backdrop-blur-sm p-4" onClick={onClose}>
       <div 
         className="relative w-full max-w-md bg-paper border border-ink/10 shadow-lg"
         onClick={(e) => e.stopPropagation()}
