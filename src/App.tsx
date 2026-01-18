@@ -1477,7 +1477,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                     <span className="typewriter-caret whitespace-pre-line">{analyzingHint}</span>
                     {analyzingHint.length >= analyzingHintText.length && (
                       <a
-                        href="/article.html"
+                        href="/article/"
                         className="block mx-auto text-[12px] font-serif text-accent hover:text-ink transition-colors"
                       >
                         阅读：三种命理体系，会算出冲突的结果吗？→
