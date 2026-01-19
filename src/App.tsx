@@ -1454,13 +1454,13 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                       </button>
                     ))}
                   </div>
-                  <p className="text-[10px] text-ink/40 mt-3">选择多个体系将分别生成独立的分析报告，为您提供多维度的命运解读</p>
-                  <p className="text-[10px] text-ink/40 mt-2">
+                  <p className="text-[10px] text-ink/40 mt-3">
+                    选择多个体系将分别生成独立的分析报告，为您提供多维度的命运解读
                     <a
                       href="/article/"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-accent hover:text-ink transition-colors"
+                      className="ml-2 text-accent hover:text-ink transition-colors"
                     >
                       了解八字、星座、紫微，各可以看到人生的哪些切面
                     </a>
