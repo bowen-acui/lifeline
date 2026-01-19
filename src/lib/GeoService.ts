@@ -27,6 +27,33 @@ export interface GeoCountry {
   geonameId: number;
 }
 
+/**
+ * 获取全球国家列表
+ */
+export async function fetchCountries(): Promise<GeoCountry[]> {
+  try {
+    const url = `https://secure.geonames.org/countryInfoJSON?username=${GEONAMES_USERNAME}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to fetch countries');
+    const data = await response.json();
+
+    if (data.geonames) {
+      return data.geonames
+        .map((item: any) => ({
+          name: item.countryName,
+          code: item.countryCode,
+          geonameId: item.geonameId,
+        }))
+        .filter((item: GeoCountry) => item.name && item.code)
+        .sort((a: GeoCountry, b: GeoCountry) => a.name.localeCompare(b.name));
+    }
+    return [];
+  } catch (error) {
+    console.error('fetchCountries error:', error);
+    return [];
+  }
+}
+
 // 常用国家代码映射
 export const COUNTRY_CODES: Record<string, string> = {
   '中国': 'CN',

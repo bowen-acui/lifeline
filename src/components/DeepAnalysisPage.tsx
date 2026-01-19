@@ -537,7 +537,7 @@ ${h.analysis}`;
     if (remainingCalls <= 0 || remainingCalls < requiredCalls) {
       onChatMessagesChange([...chatMessages, { 
         role: 'assistant', 
-        content: `⚠️ 合盘分析需要${requiredCalls}次调用次数，但当前剩余${remainingCalls}次。` 
+        content: `⚠️ 对比分析需要${requiredCalls}次调用次数，但当前剩余${remainingCalls}次。` 
       }]);
       return;
     }
@@ -567,7 +567,7 @@ ${h.analysis}`;
         userData,
         chartData,
         callType: 'chat',
-        metadata: { action: '对比分析' },
+        metadata: { action: '对比分析', deducted: requiredCalls },
       });
 
       if (result.success && result.analysis) {
