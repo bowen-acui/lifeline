@@ -335,7 +335,7 @@ app.post('/api/analyze', authenticateUser, async (req, res) => {
     // 3. 调用DeepSeek API
     stage = 'deepseek_request';
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
+    const timeout = setTimeout(() => controller.abort(), 180000);
     const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
