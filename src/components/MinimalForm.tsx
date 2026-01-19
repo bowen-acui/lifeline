@@ -34,7 +34,6 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
     // 搜索模式
     const [useSearchMode, setUseSearchMode] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const [searchCountryCode, setSearchCountryCode] = useState('');
     const [searchResults, setSearchResults] = useState<GeoCity[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const [searchError, setSearchError] = useState<string>('');
@@ -52,14 +51,6 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
         if (!countryCode) return '';
         const entry = Object.entries(COUNTRY_CODES).find(([, code]) => code === countryCode);
         return entry?.[0] ?? countryCode;
-    };
-
-    const getCountryLabel = (countryCode: string) => {
-        if (!countryCode) return '';
-        if (dataMode === 'api') {
-            return countries.find((c) => c.code === countryCode)?.name ?? countryCode;
-        }
-        return getFallbackCountryName(countryCode);
     };
 
     const fallbackCountryOptions = Object.keys(FALLBACK_DATA)
