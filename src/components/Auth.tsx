@@ -237,6 +237,10 @@ export function UserInfo({ user, remainingCalls, onLogout, recentProfiles = [], 
 
   const openUsagePanel = async () => {
     setShowUsagePanel(true);
+    await refreshUsageLogs();
+  };
+
+  const refreshUsageLogs = async () => {
     const now = Date.now();
     let hasCached = false;
     try {
@@ -271,6 +275,24 @@ export function UserInfo({ user, remainingCalls, onLogout, recentProfiles = [], 
       setIsUsageLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!showUsagePanel) return;
+    let isActive = true;
+    const pollIntervalMs = 30000;
+    const poll = async () => {
+      if (!isActive) return;
+      await refreshUsageLogs();
+    };
+    void poll();
+    const timer = window.setInterval(() => {
+      void poll();
+    }, pollIntervalMs);
+    return () => {
+      isActive = false;
+      window.clearInterval(timer);
+    };
+  }, [showUsagePanel, user?.id]);
 
   // 点击外部关闭下拉菜单
   useEffect(() => {
