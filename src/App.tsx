@@ -24,7 +24,7 @@ import { trackEvent, trackPageView } from './lib/Tracking';
 // --- Components ---
 
 const DataCard = ({ title, children, className = "" }: { title: string, children: React.ReactNode, className?: string }) => (
-  <div className={`bg-paper border border-ink/10 p-6 ${className}`}>
+  <div className={`bg-paper border border-ink/10 p-4 sm:p-6 ${className}`}>
     <h3 className="text-sm font-serif font-bold uppercase tracking-widest mb-4 text-ink/60">{title}</h3>
     <div className="font-serif text-ink">
       {children}
@@ -96,7 +96,7 @@ const DescriptionPanel = ({
   };
 
   return (
-    <div className={`transition-all duration-300 ${visible ? 'opacity-100' : 'opacity-0 pointer-events-none'} md:absolute md:left-full md:top-0 md:ml-4 md:w-48`}>
+    <div className={`transition-all duration-300 ${visible ? 'opacity-100' : 'opacity-0 pointer-events-none'} mt-3 md:mt-0 md:absolute md:left-full md:top-0 md:ml-4 md:w-48`}>
       <div className="text-xs text-ink/50 border-l-2 border-accent/30 pl-3 italic leading-relaxed">
         {description}
       </div>
@@ -188,7 +188,7 @@ function App() {
   const [showExpandedOptions, setShowExpandedOptions] = useState(false);
   const [selectedAspects, setSelectedAspects] = useState<string[]>([]);
   const [showAnalysisReport, setShowAnalysisReport] = useState(false);
-  const analyzingHintText = `可以前往其他页面，报告将在后台生成，生成之后可以点击右上角的“深度分析”按钮查看，并选择对应报告进行深入分析。
+  const analyzingHintText = `报告出具一般需要2~3分钟，生成之后可以点击右上角的“深度分析”按钮查看，并选择对应报告进行深入分析。
 
 你知道吗？八字、紫微、星座可能算出不一样的结果，
 但它们不是互相打架，而是“看人生的不同切面”。
@@ -963,7 +963,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
     <div className={`min-h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto bg-paper text-ink selection:bg-accent selection:text-white ${step !== 'deepAnalysis' ? 'justify-center' : 'pt-8'}`}>
       {/* 顶部导航栏 - 返回按钮和用户信息 */}
       {step !== 'deepAnalysis' && (
-        <div className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 flex justify-between items-center z-10">
+        <div className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center z-10">
           {/* 左侧：返回按钮 */}
           {step === 'charts' ? (
             <button
@@ -985,7 +985,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
           )}
           
           {/* 右侧：历史和登录 */}
-          <div className="flex items-center gap-3">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end sm:gap-3">
             {/* 深度求解入口（仅登录用户） */}
             {user && (
               <div className="text-xs font-serif text-ink/50 flex items-center gap-0">
@@ -1230,7 +1230,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   </div>
 
                   {/* Wu Xing Statistics */}
-                  <div className="flex justify-center gap-4 mb-4">
+                  <div className="flex flex-wrap justify-center gap-3 mb-4">
                     {Object.entries(chartData.bazi.wuxingCount).map(([element, count]) => (
                       <div key={element} className="text-center">
                         <div className={`text-lg font-bold ${count === 0 ? 'text-ink/20' : 'text-ink'}`}>{element}</div>
@@ -1242,7 +1242,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   {/* Na Yin */}
                   <div className="border-t border-ink/5 pt-2 mb-4">
                       <div className="text-[10px] text-ink/30 mb-2 uppercase tracking-widest text-center">纳音 (Na Yin)</div>
-                      <div className="grid grid-cols-4 gap-2 text-center text-xs text-ink/60">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs text-ink/60">
                           <div>{chartData.bazi.naYin.year}</div>
                           <div>{chartData.bazi.naYin.month}</div>
                           <div>{chartData.bazi.naYin.day}</div>
@@ -1253,7 +1253,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   {/* Da Yun */}
                   <div className="border-t border-ink/5 pt-2">
                       <div className="text-[10px] text-ink/30 mb-2 uppercase tracking-widest text-center">大运 (Major Cycles)</div>
-                      <div className="grid grid-cols-8 gap-1">
+                      <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-1.5">
                           {chartData.bazi.daYun.map((dy) => (
                               <div key={dy.startAge} className="text-center">
                                   <div className="text-sm font-bold">{dy.ganZhi}</div>
@@ -1289,7 +1289,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                 >
                   <DataCard title="02. 天体坐标 (Western)">
                   {/* Main Luminaries - Sun, Moon, Ascendant */}
-                  <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4">
                     <div className="border border-ink/10 p-3 text-center">
                       <div className="text-[10px] text-ink/30 uppercase tracking-widest mb-1">太阳 Sun</div>
                       <div className="text-lg font-bold">{chartData.western.sunSign.split(' ')[0]}</div>
@@ -1316,7 +1316,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   {/* Planets Grid */}
                   <div className="border-t border-ink/5 pt-3">
                     <div className="text-[10px] text-ink/30 mb-2 uppercase tracking-widest text-center">行星位置 (Planetary Positions)</div>
-                    <div className="grid grid-cols-5 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                       {chartData.western.planets.map(p => (
                         <div key={p.name} className="text-center border border-ink/5 p-2">
                           <div className="text-[10px] text-ink/40">{p.name}</div>
@@ -1352,7 +1352,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   } hover:-translate-y-0.5 hover:shadow-[0_16px_50px_rgba(0,0,0,0.08)]`}
                 >
                 <DataCard title="03. 紫微斗数 (Ziwei)">
-                 <div className="grid grid-cols-4 gap-2 text-xs">
+                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-[11px] sm:text-xs">
                     {chartData.ziwei.palaces?.map((palace) => (
                       <div
                         key={palace.name}
@@ -1367,7 +1367,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                           {palace.stars.slice(0, 10).map((s) => (
                             <span
                               key={`${palace.name}-${s.name}-${s.mutagen ?? ''}`}
-                              className="flex items-center justify-center h-5 px-1 border border-ink/10 font-mono text-[10px] text-ink/80 leading-none"
+                              className="flex items-center justify-center h-5 px-1 border border-ink/10 font-mono text-[11px] sm:text-[10px] text-ink/80 leading-none"
                             >
                               {s.name}
                               {s.mutagen ? <MutagenBadge mutagen={s.mutagen} /> : null}
