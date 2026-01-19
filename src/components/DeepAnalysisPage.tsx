@@ -428,6 +428,20 @@ export default function DeepAnalysisPage({
     }
   };
 
+  const handleCopySelectedText = async () => {
+    if (!selectedText) return;
+    try {
+      await navigator.clipboard.writeText(selectedText);
+      showToast('已复制选中文字');
+    } catch (error) {
+      console.error('复制选中文字失败:', error);
+      showToast('复制失败，请重试');
+    } finally {
+      setSelectedText('');
+      setSelectionPosition(null);
+    }
+  };
+
   // 获取选中的历史记录
   const selectedHistories = historyList.filter(h => selectedIds.includes(h.id));
 
@@ -836,7 +850,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-paper">
+    <div className="fixed inset-0 z-50 flex flex-col bg-paper selection:bg-accent selection:text-white">
       {/* 顶部导航 */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-ink/10">
         <button
@@ -1285,16 +1299,29 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
 
       {/* 选中文本追问按钮 - 使用 Portal */}
       {selectedText && selectionPosition && createPortal(
-        <div 
-          className="fixed z-[200] bg-ink text-paper px-3 py-1.5 text-xs font-serif shadow-lg cursor-pointer hover:bg-ink/80 transition-colors"
-          style={{ 
-            left: selectionPosition.x, 
+        <div
+          className="fixed z-[200] flex items-center gap-2 bg-ink text-paper px-2 py-1.5 text-xs font-serif shadow-lg"
+          style={{
+            left: selectionPosition.x,
             top: selectionPosition.y,
             transform: 'translate(-50%, -100%)'
           }}
-          onClick={handleQuoteAsk}
         >
-          追问
+          <button
+            type="button"
+            onClick={handleQuoteAsk}
+            className="px-2 py-0.5 hover:bg-paper/10 transition-colors"
+          >
+            追问
+          </button>
+          <span className="h-3 w-px bg-paper/30" />
+          <button
+            type="button"
+            onClick={handleCopySelectedText}
+            className="px-2 py-0.5 hover:bg-paper/10 transition-colors"
+          >
+            复制
+          </button>
         </div>,
         document.body
       )}
