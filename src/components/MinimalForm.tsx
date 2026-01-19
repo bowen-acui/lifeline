@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { lookupCity, getCityTimezone } from '../lib/CityLookup';
-import { FALLBACK_DATA, getFallbackRegions, getFallbackCities, searchCities, getCityCoordinates, getCityCoordinatesFromFallback, GeoCity, COUNTRY_CODES } from '../lib/GeoService';
+import { FALLBACK_DATA, fetchCountries, fetchRegions, fetchCities, getCityDetails, getFallbackRegions, getFallbackCities, searchCities, getCityCoordinates, getCityCoordinatesFromFallback, GeoCity, GeoCountry, GeoRegion, COUNTRY_CODES } from '../lib/GeoService';
 import { trackEvent } from '../lib/Tracking';
 
 interface MinimalFormProps {
@@ -20,15 +20,21 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
     const [orientation, setOrientation] = useState('');
     const [locationStatus, setLocationStatus] = useState<{valid: boolean, msg: string} | null>(null);
 
-    // Location Select State - 使用备用数据
-    const [selectedCountry, setSelectedCountry] = useState<string>('');
+    // Location Select State
+    const [selectedCountryCode, setSelectedCountryCode] = useState<string>('');
     const [selectedRegion, setSelectedRegion] = useState<string>('');
-    const [regions, setRegions] = useState<string[]>([]);
-    const [cities, setCities] = useState<string[]>([]);
+    const [regions, setRegions] = useState<GeoRegion[]>([]);
+    const [cities, setCities] = useState<GeoCity[]>([]);
+    const [countries, setCountries] = useState<GeoCountry[]>([]);
+    const [dataMode, setDataMode] = useState<'api' | 'fallback'>('api');
+    const [isCountriesLoading, setIsCountriesLoading] = useState(false);
+    const [isRegionsLoading, setIsRegionsLoading] = useState(false);
+    const [isCitiesLoading, setIsCitiesLoading] = useState(false);
     
     // 搜索模式
     const [useSearchMode, setUseSearchMode] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [searchCountryCode, setSearchCountryCode] = useState('');
     const [searchResults, setSearchResults] = useState<GeoCity[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const [searchError, setSearchError] = useState<string>('');
@@ -42,19 +48,131 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
     const genderRef = useRef<HTMLSelectElement>(null);
     const submitButtonRef = useRef<HTMLButtonElement>(null);
 
+    const getFallbackCountryName = (countryCode: string) => {
+        if (!countryCode) return '';
+        const entry = Object.entries(COUNTRY_CODES).find(([, code]) => code === countryCode);
+        return entry?.[0] ?? countryCode;
+    };
+
+    const getCountryLabel = (countryCode: string) => {
+        if (!countryCode) return '';
+        if (dataMode === 'api') {
+            return countries.find((c) => c.code === countryCode)?.name ?? countryCode;
+        }
+        return getFallbackCountryName(countryCode);
+    };
+
+    const fallbackCountryOptions = Object.keys(FALLBACK_DATA)
+        .map((name) => ({
+            name,
+            code: COUNTRY_CODES[name] ?? name,
+        }))
+        .filter((item) => item.code);
+
+    const loadFallbackRegions = (countryCode: string) => {
+        const fallbackCountryName = getFallbackCountryName(countryCode);
+        const regionList = getFallbackRegions(fallbackCountryName);
+        setRegions(regionList.map((name) => ({ name, geonameId: 0 })));
+    };
+
+    const loadFallbackCities = (countryCode: string, regionName: string) => {
+        const fallbackCountryName = getFallbackCountryName(countryCode);
+        const cityList = getFallbackCities(fallbackCountryName, regionName);
+        setCities(cityList.map((name) => {
+            const coords = getCityCoordinatesFromFallback(name);
+            return {
+                name,
+                adminName1: regionName,
+                countryName: fallbackCountryName,
+                lat: coords?.lat ?? 0,
+                lng: coords?.lng ?? 0,
+                timezone: coords?.timezone ?? 'UTC',
+            };
+        }));
+    };
+
+    const loadRegions = async (countryCode: string) => {
+        setIsRegionsLoading(true);
+        setRegions([]);
+        setSelectedRegion('');
+        setCities([]);
+        setBirthPlace('');
+        setLocationStatus(null);
+
+        if (dataMode === 'fallback') {
+            loadFallbackRegions(countryCode);
+            setIsRegionsLoading(false);
+            return;
+        }
+
+        const regionList = await fetchRegions(countryCode);
+        setRegions(regionList);
+        setIsRegionsLoading(false);
+
+        if (regionList.length === 0) {
+            setLocationStatus({ valid: false, msg: '未找到该国家的地区列表，请使用搜索兜底' });
+        }
+    };
+
+    const loadCities = async (regionName: string) => {
+        setIsCitiesLoading(true);
+        setCities([]);
+        setBirthPlace('');
+        setLocationStatus(null);
+
+        if (dataMode === 'fallback') {
+            loadFallbackCities(selectedCountryCode, regionName);
+            setIsCitiesLoading(false);
+            return;
+        }
+
+        const region = regions.find((r) => r.name === regionName);
+        if (!region?.geonameId) {
+            setIsCitiesLoading(false);
+            setLocationStatus({ valid: false, msg: '未找到该地区的城市列表，请使用搜索兜底' });
+            return;
+        }
+
+        const cityList = await fetchCities(region.geonameId);
+        setCities(cityList);
+        setIsCitiesLoading(false);
+
+        if (cityList.length === 0) {
+            setLocationStatus({ valid: false, msg: '未找到该地区的城市列表，请使用搜索兜底' });
+        }
+    };
+
     // Initialize default location
     useEffect(() => {
-        // 默认选中中国
-        const defaultCountry = '中国';
-        setSelectedCountry(defaultCountry);
-        setRegions(getFallbackRegions(defaultCountry));
-        
-        // 默认选中直辖市 -> 北京
-        const defaultRegion = '直辖市';
-        setSelectedRegion(defaultRegion);
-        setCities(getFallbackCities(defaultCountry, defaultRegion));
-        setBirthPlace('北京');
-        setLocationStatus({ valid: true, msg: '已定位: 39.90, 116.41 (Asia/Shanghai)' });
+        const initializeLocation = async () => {
+            setIsCountriesLoading(true);
+            const apiCountries = await fetchCountries();
+            setIsCountriesLoading(false);
+
+            if (apiCountries.length > 0) {
+                setCountries(apiCountries);
+                setDataMode('api');
+                const defaultCountryCode = 'CN';
+                const availableDefault = apiCountries.find((c) => c.code === defaultCountryCode);
+                const initialCountryCode = availableDefault?.code ?? apiCountries[0]?.code ?? '';
+                setSelectedCountryCode(initialCountryCode);
+                void loadRegions(initialCountryCode);
+                return;
+            }
+
+            setDataMode('fallback');
+            const fallbackCountryCode = COUNTRY_CODES['中国'] ?? 'CN';
+            setSelectedCountryCode(fallbackCountryCode);
+            loadFallbackRegions(fallbackCountryCode);
+
+            const defaultRegion = '直辖市';
+            setSelectedRegion(defaultRegion);
+            loadFallbackCities(fallbackCountryCode, defaultRegion);
+            setBirthPlace('北京');
+            setLocationStatus({ valid: true, msg: '已定位: 39.90, 116.41 (Asia/Shanghai)' });
+        };
+
+        void initializeLocation();
     }, []);
 
     const handleYearChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -88,16 +206,21 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
     };
 
     const handleCountryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const countryName = e.target.value;
-        setSelectedCountry(countryName);
+        const countryCode = e.target.value;
+        setSelectedCountryCode(countryCode);
         setSelectedRegion('');
         setBirthPlace('');
         setLocationStatus(null);
-        
-        // 加载该国家的省份
-        const regionList = getFallbackRegions(countryName);
-        setRegions(regionList);
-        setCities([]);
+        setSearchResults([]);
+        setSearchError('');
+
+        if (dataMode === 'fallback') {
+            loadFallbackRegions(countryCode);
+            setCities([]);
+            return;
+        }
+
+        void loadRegions(countryCode);
     };
 
     const handleRegionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -105,27 +228,41 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
         setSelectedRegion(regionName);
         setBirthPlace('');
         setLocationStatus(null);
-        
-        // 加载该省份的城市
-        const cityList = getFallbackCities(selectedCountry, regionName);
-        setCities(cityList);
+
+        void loadCities(regionName);
     };
 
     const handleCityChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const city = e.target.value;
-        setBirthPlace(city);
+        const cityName = e.target.value;
+        setBirthPlace(cityName);
         setLocationStatus({ valid: false, msg: '正在查询坐标...' });
-        
-        // 1. 先尝试从 city-timezones 查找
-        const coords = lookupCity(city);
-        if (coords) {
-             const tz = getCityTimezone(city);
-             setLocationStatus({ valid: true, msg: `已定位: ${coords.lat.toFixed(2)}, ${coords.lng.toFixed(2)} (${tz})` });
-             return;
+
+        if (dataMode === 'api') {
+            const selectedCity = cities.find((city) => city.name === cityName);
+            if (selectedCity) {
+                let timezone = selectedCity.timezone;
+                if (!timezone || timezone === 'UTC') {
+                    const details = await getCityDetails(selectedCity.lat, selectedCity.lng);
+                    timezone = details?.timezone ?? timezone ?? 'UTC';
+                }
+                setLocationStatus({ 
+                    valid: true, 
+                    msg: `已定位: ${selectedCity.lat.toFixed(2)}, ${selectedCity.lng.toFixed(2)} (${timezone})` 
+                });
+                return;
+            }
         }
-        
-        // 2. 尝试从备用坐标数据库查找
-        const fallbackCoords = getCityCoordinatesFromFallback(city);
+
+        // 备用模式：先尝试从 city-timezones 查找
+        const coords = lookupCity(cityName);
+        if (coords) {
+            const tz = getCityTimezone(cityName);
+            setLocationStatus({ valid: true, msg: `已定位: ${coords.lat.toFixed(2)}, ${coords.lng.toFixed(2)} (${tz})` });
+            return;
+        }
+
+        // 尝试从备用坐标数据库查找
+        const fallbackCoords = getCityCoordinatesFromFallback(cityName);
         if (fallbackCoords) {
             setLocationStatus({ 
                 valid: true, 
@@ -133,22 +270,22 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
             });
             return;
         }
-        
-        // 3. 尝试从 GeoNames API 查询
+
+        // 尝试从 GeoNames API 查询
         try {
-            const countryCode = COUNTRY_CODES[selectedCountry];
-            const result = await getCityCoordinates(city, countryCode);
+            const countryCode = selectedCountryCode || undefined;
+            const result = await getCityCoordinates(cityName, countryCode);
             if (result) {
                 setLocationStatus({ 
                     valid: true, 
                     msg: `已定位: ${result.lat.toFixed(2)}, ${result.lng.toFixed(2)} (${result.timezone})` 
                 });
             } else {
-                setLocationStatus({ valid: false, msg: `未找到 ${city} 的坐标信息` });
+                setLocationStatus({ valid: false, msg: `未找到 ${cityName} 的坐标信息` });
             }
         } catch (error) {
             console.error('Failed to get city coordinates:', error);
-            setLocationStatus({ valid: false, msg: `查询失败: ${city}` });
+            setLocationStatus({ valid: false, msg: `查询失败: ${cityName}` });
         }
     };
 
@@ -159,7 +296,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
         setSearchError('');
         setSearchResults([]);
         try {
-            const results = await searchCities(searchQuery);
+            const results = await searchCities(searchQuery, searchCountryCode || undefined);
             if (results.length === 0) {
                 setSearchError('未找到匹配的城市，请尝试其他关键词');
             } else {
@@ -405,13 +542,16 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                         <div className="flex gap-4">
                             <select 
                                 ref={countryRef}
-                                value={selectedCountry} 
+                                value={selectedCountryCode} 
                                 onChange={handleCountryChange}
                                 className="minimal-input w-1/3"
+                                disabled={isCountriesLoading}
                             >
-                                <option value="" disabled>选择国家</option>
-                                {Object.keys(FALLBACK_DATA).map(c => (
-                                    <option key={c} value={c}>{c}</option>
+                                <option value="" disabled>{isCountriesLoading ? '国家加载中...' : '选择国家'}</option>
+                                {(dataMode === 'api' ? countries : fallbackCountryOptions).map((country) => (
+                                    <option key={country.code} value={country.code}>
+                                        {country.name}
+                                    </option>
                                 ))}
                             </select>
 
@@ -419,11 +559,13 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                                 value={selectedRegion} 
                                 onChange={handleRegionChange}
                                 className="minimal-input w-1/3"
-                                disabled={!selectedCountry}
+                                disabled={!selectedCountryCode || isRegionsLoading}
                             >
-                                <option value="" disabled>选择省份/地区</option>
-                                {regions.map(r => (
-                                    <option key={r} value={r}>{r}</option>
+                                <option value="" disabled>{isRegionsLoading ? '地区加载中...' : '选择省份/地区'}</option>
+                                {regions.map((region) => (
+                                    <option key={`${region.name}-${region.geonameId}`} value={region.name}>
+                                        {region.name}
+                                    </option>
                                 ))}
                             </select>
 
@@ -431,11 +573,13 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                                 value={birthPlace} 
                                 onChange={handleCityChange}
                                 className="minimal-input w-1/3"
-                                disabled={!selectedRegion}
+                                disabled={!selectedRegion || isCitiesLoading}
                             >
-                                <option value="" disabled>选择城市</option>
-                                {cities.map(c => (
-                                    <option key={c} value={c}>{c}</option>
+                                <option value="" disabled>{isCitiesLoading ? '城市加载中...' : '选择城市'}</option>
+                                {cities.map((city) => (
+                                    <option key={`${city.name}-${city.lat}-${city.lng}`} value={city.name}>
+                                        {city.name}
+                                    </option>
                                 ))}
                             </select>
                         </div>
