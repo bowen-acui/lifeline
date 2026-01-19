@@ -96,7 +96,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
             return;
         }
 
-        const regionList = await fetchRegions(countryCode);
+        const regionList = await fetchRegions(countryCode, countryCode === 'CN' ? 'zh' : undefined);
         setRegions(regionList);
         setIsRegionsLoading(false);
 
@@ -124,7 +124,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
             return;
         }
 
-        const cityList = await fetchCities(region.geonameId);
+        const cityList = await fetchCities(region.geonameId, selectedCountryCode === 'CN' ? 'zh' : undefined);
         setCities(cityList);
         setIsCitiesLoading(false);
 

@@ -93,9 +93,12 @@ export const COUNTRIES = Object.keys(COUNTRY_CODES);
 /**
  * 获取国家的一级行政区（省/州）
  */
-export async function fetchRegions(countryCode: string): Promise<GeoRegion[]> {
+export async function fetchRegions(countryCode: string, lang?: string): Promise<GeoRegion[]> {
   try {
-    const url = `https://secure.geonames.org/childrenJSON?geonameId=${await getCountryGeonameId(countryCode)}&username=${GEONAMES_USERNAME}`;
+    let url = `https://secure.geonames.org/childrenJSON?geonameId=${await getCountryGeonameId(countryCode)}&username=${GEONAMES_USERNAME}`;
+    if (lang) {
+      url += `&lang=${encodeURIComponent(lang)}`;
+    }
     const response = await fetch(url);
     if (!response.ok) throw new Error('Failed to fetch regions');
     const data = await response.json();
@@ -116,9 +119,12 @@ export async function fetchRegions(countryCode: string): Promise<GeoRegion[]> {
 /**
  * 获取地区的城市列表
  */
-export async function fetchCities(regionGeonameId: number): Promise<GeoCity[]> {
+export async function fetchCities(regionGeonameId: number, lang?: string): Promise<GeoCity[]> {
   try {
-    const url = `https://secure.geonames.org/childrenJSON?geonameId=${regionGeonameId}&username=${GEONAMES_USERNAME}`;
+    let url = `https://secure.geonames.org/childrenJSON?geonameId=${regionGeonameId}&username=${GEONAMES_USERNAME}`;
+    if (lang) {
+      url += `&lang=${encodeURIComponent(lang)}`;
+    }
     const response = await fetch(url);
     if (!response.ok) throw new Error('Failed to fetch cities');
     const data = await response.json();
