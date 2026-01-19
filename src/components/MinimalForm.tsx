@@ -287,7 +287,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
         setSearchError('');
         setSearchResults([]);
         try {
-            const results = await searchCities(searchQuery, searchCountryCode || undefined);
+            const results = await searchCities(searchQuery, selectedCountryCode || undefined);
             if (results.length === 0) {
                 setSearchError('未找到匹配的城市，请尝试其他关键词');
             } else {
