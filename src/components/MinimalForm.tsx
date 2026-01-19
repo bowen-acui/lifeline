@@ -137,7 +137,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
     useEffect(() => {
         const initializeLocation = async () => {
             setIsCountriesLoading(true);
-            const apiCountries = await fetchCountries();
+            const apiCountries = await fetchCountries('zh');
             setIsCountriesLoading(false);
 
             if (apiCountries.length > 0) {

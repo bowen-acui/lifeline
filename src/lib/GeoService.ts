@@ -30,9 +30,12 @@ export interface GeoCountry {
 /**
  * 获取全球国家列表
  */
-export async function fetchCountries(): Promise<GeoCountry[]> {
+export async function fetchCountries(lang?: string): Promise<GeoCountry[]> {
   try {
-    const url = `https://secure.geonames.org/countryInfoJSON?username=${GEONAMES_USERNAME}`;
+    let url = `https://secure.geonames.org/countryInfoJSON?username=${GEONAMES_USERNAME}`;
+    if (lang) {
+      url += `&lang=${encodeURIComponent(lang)}`;
+    }
     const response = await fetch(url);
     if (!response.ok) throw new Error('Failed to fetch countries');
     const data = await response.json();
