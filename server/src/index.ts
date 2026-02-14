@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 
@@ -21,6 +22,34 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
+
+// ==================== 速率限制 ====================
+// AI 分析接口：每个 IP 每分钟最多 6 次请求
+const analyzeRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || 'unknown';
+  },
+  message: { error: '请求过于频繁，请稍后再试' },
+});
+
+// 通用 API 接口：每个 IP 每分钟最多 30 次请求
+const generalRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || 'unknown';
+  },
+  message: { error: '请求过于频繁，请稍后再试' },
+});
+
+// 对所有 /api/ 路由应用通用限制
+app.use('/api/', generalRateLimiter);
 
 function getQuotaDateString() {
   try {
@@ -254,7 +283,7 @@ app.get('/api/quota', authenticateUser, async (req, res) => {
 });
 
 // ==================== AI分析接口 ====================
-app.post('/api/analyze', authenticateUser, async (req, res) => {
+app.post('/api/analyze', analyzeRateLimiter, authenticateUser, async (req, res) => {
   const startAt = Date.now();
   const requestIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
   const userAgent = req.headers['user-agent'] || '';
