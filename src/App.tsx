@@ -1184,7 +1184,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   } hover:-translate-y-0.5 hover:shadow-[0_16px_50px_rgba(0,0,0,0.08)]`}
                 >
                   <DataCard title="01. 四柱八字 (Bazi)">
-                  <div className="grid grid-cols-4 gap-2 text-center mb-4">
+                  <div className="-mx-2 px-2 sm:mx-0 sm:px-0 overflow-x-auto">
+                  <div className="grid grid-cols-4 gap-2 text-center mb-4 min-w-[420px] sm:min-w-0">
                     <div className="text-xs text-ink/30 mb-1">年柱</div>
                     <div className="text-xs text-ink/30 mb-1">月柱</div>
                     <div className="text-xs text-ink/30 mb-1">日柱</div>
@@ -1224,6 +1225,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                         ))}
                     </div>
                   </div>
+                  </div>
                   
                   <div className="text-xs font-mono text-ink/50 text-center border-t border-ink/5 pt-2 mb-4">
                     {chartData.bazi.wuxing}
@@ -1253,7 +1255,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   {/* Da Yun */}
                   <div className="border-t border-ink/5 pt-2">
                       <div className="text-[10px] text-ink/30 mb-2 uppercase tracking-widest text-center">大运 (Major Cycles)</div>
-                      <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-1.5">
+                  <div className="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-8 gap-1.5">
                           {chartData.bazi.daYun.map((dy) => (
                               <div key={dy.startAge} className="text-center">
                                   <div className="text-sm font-bold">{dy.ganZhi}</div>
@@ -1352,7 +1354,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   } hover:-translate-y-0.5 hover:shadow-[0_16px_50px_rgba(0,0,0,0.08)]`}
                 >
                 <DataCard title="03. 紫微斗数 (Ziwei)">
-                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-[11px] sm:text-xs">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-2 text-[11px] sm:text-xs">
                     {chartData.ziwei.palaces?.map((palace) => (
                       <div
                         key={palace.name}
