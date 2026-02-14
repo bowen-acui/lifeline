@@ -130,6 +130,34 @@ const DescriptionPanel = ({
   );
 };
 
+// Shared Markdown renderer for analysis reports
+const analysisMarkdownComponents = {
+  h1: ({children}: {children?: React.ReactNode}) => <h1 className="text-xl font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b-2 border-accent">{children}</h1>,
+  h2: ({children}: {children?: React.ReactNode}) => <h2 className="text-lg font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b border-ink/20">{children}</h2>,
+  h3: ({children}: {children?: React.ReactNode}) => <h3 className="text-base font-serif font-bold text-ink mb-2 mt-4">{children}</h3>,
+  h4: ({children}: {children?: React.ReactNode}) => <h4 className="text-sm font-serif font-semibold text-accent mb-2 mt-3">{children}</h4>,
+  p: ({children}: {children?: React.ReactNode}) => <p className="text-sm font-serif text-ink/80 leading-relaxed mb-3">{children}</p>,
+  ul: ({children}: {children?: React.ReactNode}) => <ul className="list-disc list-inside space-y-1 mb-3 ml-2">{children}</ul>,
+  ol: ({children}: {children?: React.ReactNode}) => <ol className="list-decimal list-inside space-y-1 mb-3 ml-2">{children}</ol>,
+  li: ({children}: {children?: React.ReactNode}) => <li className="text-sm font-serif text-ink/80 leading-relaxed">{children}</li>,
+  strong: ({children}: {children?: React.ReactNode}) => <strong className="font-bold text-ink">{children}</strong>,
+  blockquote: ({children}: {children?: React.ReactNode}) => <blockquote className="border-l-4 border-accent bg-accent/5 pl-4 py-2 my-3 italic text-ink/70">{children}</blockquote>,
+  hr: () => <hr className="my-6 border-ink/10" />,
+};
+
+const AnalysisReportSection = ({ title, content }: { title: string; content: string }) => (
+  <div className="border border-accent/30 p-6 bg-accent/5">
+    <div className="mb-4">
+      <h4 className="text-base font-serif font-bold text-accent">{title}</h4>
+    </div>
+    <div className="ai-analysis-content">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={analysisMarkdownComponents}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  </div>
+);
+
 const MutagenBadge = ({ mutagen }: { mutagen: string }) => (
   <span className="ml-1 inline-flex items-center justify-center h-4 px-1 bg-ink text-paper text-[10px] font-mono leading-none">
     {mutagen}
@@ -141,8 +169,7 @@ function App() {
   const [chartData, setChartData] = useState<BaseChartData | null>(null);
   const [userData, setUserData] = useState<{ date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string } | null>(null);
   const [selectedCharts, setSelectedCharts] = useState<string[]>([]);
-  // @ts-expect-error - Used in performAIAnalysis via result.keyYears
-  const [keyYears, setKeyYears] = useState<KeyYear[]>([]);
+  const [, setKeyYears] = useState<KeyYear[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [analyzingHint, setAnalyzingHint] = useState('');
@@ -151,13 +178,6 @@ function App() {
   const { user, loading: authLoading, logout } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [remainingCalls, setRemainingCalls] = useState(19);
-  // 以下认证相关状态已注释，直接使用 .env 中的 DeepSeek API
-  // const [aiModel, setAiModel] = useState<'deepseek' | 'chatgpt'>('deepseek');
-  // const [authMode, setAuthMode] = useState<'activation' | 'apikey'>('activation');
-  // const [activationCode, setActivationCode] = useState('');
-  // const [apiKey, setApiKey] = useState('');
-  // const [authError, setAuthError] = useState<string | null>(null);
-  // const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [analysisResume, setAnalysisResume] = useState<{
     startedAt: number;
@@ -862,102 +882,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
     }
   };
 
-  // handleAuth 函数已注释，直接使用 .env 中的 API
-  /*
-  const handleAuth = () => {
-    setAuthError(null);
-    
-    if (authMode === 'activation') {
-      if (validateActivationCode(activationCode)) {
-        setIsAuthenticated(true);
-        setAuthError(null);
-      } else {
-        setAuthError('激活码无效，请检查后重试');
-      }
-    } else {
-      if (validateApiKey(apiKey, aiModel)) {
-        setIsAuthenticated(true);
-        setAuthError(null);
-      } else {
-        setAuthError('API Key 格式不正确');
-      }
-    }
-  };
-  */
 
-  // @ts-expect-error - Stub function for backwards compatibility
-  const requestAiAnalysis = async () => {
-    // This function was for the old page 3 flow and is no longer used
-    // Keeping stub for backwards compatibility
-  };
 
-  // 生成完整年度分数（基于关键年份插值）
-  // 注：此函数在新的流程中不再使用
-  /*
-  const generateFullYearScores = () => {
-    if (!userData || keyYears.length === 0) return;
-    
-    const birthYear = userData.date.getFullYear();
-    const currentAge = new Date().getFullYear() - birthYear;
-    const minAge = Math.max(0, currentAge - 10);
-    const maxAge = currentAge + 30;
-    
-    // 使用关键年份作为锚点，其他年份插值
-    const scores: YearScore[] = [];
-    
-    for (let age = minAge; age <= maxAge; age++) {
-      const year = birthYear + age;
-      const keyYear = keyYears.find(k => k.age === age);
-      
-      if (keyYear) {
-        // 关键年份使用确定的分数
-        scores.push({
-          year,
-          age,
-          career: keyYear.score.career,
-          relationship: keyYear.score.relationship,
-        });
-      } else {
-        // 非关键年份：在最近的两个关键年份之间插值 + 小波动
-        const sortedKeyYears = [...keyYears].sort((a, b) => a.age - b.age);
-        let prevKey = sortedKeyYears[0];
-        let nextKey = sortedKeyYears[sortedKeyYears.length - 1];
-        
-        for (const ky of sortedKeyYears) {
-          if (ky.age <= age) prevKey = ky;
-          if (ky.age >= age && nextKey.age > ky.age) nextKey = ky;
-        }
-        
-        // 找到前后最近的关键年份
-        for (let i = 0; i < sortedKeyYears.length - 1; i++) {
-          if (sortedKeyYears[i].age <= age && sortedKeyYears[i + 1].age >= age) {
-            prevKey = sortedKeyYears[i];
-            nextKey = sortedKeyYears[i + 1];
-            break;
-          }
-        }
-        
-        // 线性插值
-        const t = nextKey.age === prevKey.age ? 0.5 : (age - prevKey.age) / (nextKey.age - prevKey.age);
-        const baseCareer = prevKey.score.career + t * (nextKey.score.career - prevKey.score.career);
-        const baseRelationship = prevKey.score.relationship + t * (nextKey.score.relationship - prevKey.score.relationship);
-        
-        // 添加小波动（基于年份的确定性噪声）
-        const noise1 = Math.sin(year * 0.7 + age * 0.3) * 5 + Math.sin(year * 0.23) * 3;
-        const noise2 = Math.sin(year * 0.5 + age * 0.5 + 1) * 4 + Math.sin(year * 0.31 + 2) * 3;
-        
-        scores.push({
-          year,
-          age,
-          career: Math.max(15, Math.min(85, Math.round(baseCareer + noise1))),
-          relationship: Math.max(15, Math.min(85, Math.round(baseRelationship + noise2))),
-        });
-      }
-    }
-    
-    setFullYearScores(scores);
-  };
-  */
 
   return (
     <div className={`min-h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto bg-paper text-ink selection:bg-accent selection:text-white ${step !== 'deepAnalysis' ? 'justify-center' : 'pt-8'}`}>
@@ -1504,108 +1430,6 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   </div>
                 </div>
 
-                {/* 3. 选择模型 - 已注释，直接使用 .env 中的 DeepSeek API */}
-                {/* <div className="border border-accent/30 p-6 bg-accent/5">
-                  <h3 className="text-sm font-serif font-bold mb-4">3. 选择 AI 模型</h3>
-                  <p className="text-xs text-ink/40 font-mono mb-4">选择认证方式获取分析能力</p>
-                  
-                  <div className="border-b border-ink/10 pb-4 mb-4">
-                    <div className="flex items-center gap-4">
-                      <span className="text-xs font-mono text-ink/60">模型:</span>
-                      <select 
-                        value={aiModel}
-                        onChange={(e) => {
-                          setAiModel(e.target.value as 'deepseek' | 'chatgpt');
-                          setIsAuthenticated(false);
-                          setAuthError(null);
-                        }}
-                        className="text-xs font-mono border border-ink/20 px-3 py-1.5 bg-white rounded-none"
-                      >
-                        <option value="deepseek">DeepSeek</option>
-                        <option value="chatgpt">ChatGPT</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="pb-4 mb-4">
-                    <div className="flex items-center gap-4 mb-3">
-                      <span className="text-xs font-mono text-ink/60">验证方式:</span>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => { setAuthMode('activation'); setAuthError(null); }}
-                          className={`text-xs font-mono px-3 py-1 border transition-all ${
-                            authMode === 'activation' 
-                              ? 'border-accent bg-accent text-white' 
-                              : 'border-ink/20 text-ink/60 hover:border-accent/50'
-                          }`}
-                        >
-                          激活码
-                        </button>
-                        <button
-                          onClick={() => { setAuthMode('apikey'); setAuthError(null); }}
-                          className={`text-xs font-mono px-3 py-1 border transition-all ${
-                            authMode === 'apikey' 
-                              ? 'border-accent bg-accent text-white' 
-                              : 'border-ink/20 text-ink/60 hover:border-accent/50'
-                          }`}
-                        >
-                          API Key
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      {authMode === 'activation' ? (
-                        <input
-                          type="text"
-                          value={activationCode}
-                          onChange={(e) => {
-                            setActivationCode(e.target.value);
-                            setIsAuthenticated(false);
-                          }}
-                          placeholder="请输入激活码"
-                          className="flex-1 text-xs font-mono border border-ink/20 px-3 py-1.5 bg-white focus:border-accent focus:outline-none"
-                        />
-                      ) : (
-                        <input
-                          type="password"
-                          value={apiKey}
-                          onChange={(e) => {
-                            setApiKey(e.target.value);
-                            setIsAuthenticated(false);
-                          }}
-                          placeholder={`请输入 ${aiModel === 'deepseek' ? 'DeepSeek' : 'OpenAI'} API Key`}
-                          className="flex-1 text-xs font-mono border border-ink/20 px-3 py-1.5 bg-white focus:border-accent focus:outline-none"
-                        />
-                      )}
-                      <button
-                        onClick={handleAuth}
-                        disabled={isAuthenticated}
-                        className={`text-xs font-mono px-4 py-1.5 transition-all ${
-                          isAuthenticated 
-                            ? 'bg-green-500 text-white cursor-default' 
-                            : 'bg-ink text-paper hover:bg-accent'
-                        }`}
-                      >
-                        {isAuthenticated ? '✓ 已验证' : '验证'}
-                      </button>
-                    </div>
-
-                    {authError && (
-                      <p className="mt-2 text-xs text-red-500 font-mono">{authError}</p>
-                    )}
-
-                    {!isAuthenticated && (
-                      <p className="mt-2 text-[10px] text-ink/40 font-mono">
-                        {authMode === 'activation' 
-                          ? '激活码可通过邀请获取，或联系客服购买' 
-                          : `使用自己的 ${aiModel === 'deepseek' ? 'DeepSeek' : 'OpenAI'} API Key，费用由您的账户承担`
-                        }
-                      </p>
-                    )}
-                  </div>
-                </div> */}
-
                 {/* 【AI深度分析】按钮 */}
                 <div className="flex justify-center pt-4">
                   <button
@@ -1641,85 +1465,14 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   <div className="mt-8 space-y-8">
                     <h3 className="text-lg font-serif font-bold text-center text-ink">AI深度分析报告</h3>
                     
-                    {/* 八字分析 */}
                     {multiSystemAnalysis.bazi && (
-                      <div className="border border-accent/30 p-6 bg-accent/5">
-                        <div className="mb-4">
-                          <h4 className="text-base font-serif font-bold text-accent">生辰八字分析</h4>
-                        </div>
-                        <div className="ai-analysis-content">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              h1: ({children}) => <h1 className="text-xl font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b-2 border-accent">{children}</h1>,
-                              h2: ({children}) => <h2 className="text-lg font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b border-ink/20">{children}</h2>,
-                              h3: ({children}) => <h3 className="text-base font-serif font-bold text-ink mb-2 mt-4">{children}</h3>,
-                              h4: ({children}) => <h4 className="text-sm font-serif font-semibold text-accent mb-2 mt-3">{children}</h4>,
-                              p: ({children}) => <p className="text-sm font-serif text-ink/80 leading-relaxed mb-3">{children}</p>,
-                              ul: ({children}) => <ul className="list-disc list-inside space-y-1 mb-3 ml-2">{children}</ul>,
-                              ol: ({children}) => <ol className="list-decimal list-inside space-y-1 mb-3 ml-2">{children}</ol>,
-                              li: ({children}) => <li className="text-sm font-serif text-ink/80 leading-relaxed">{children}</li>,
-                              strong: ({children}) => <strong className="font-bold text-ink">{children}</strong>,
-                              blockquote: ({children}) => <blockquote className="border-l-4 border-accent bg-accent/5 pl-4 py-2 my-3 italic text-ink/70">{children}</blockquote>,
-                              hr: () => <hr className="my-6 border-ink/10" />,
-                            }}
-                          >{multiSystemAnalysis.bazi}</ReactMarkdown>
-                        </div>
-                      </div>
+                      <AnalysisReportSection title="生辰八字分析" content={multiSystemAnalysis.bazi} />
                     )}
-                    
-                    {/* 天体星座分析 */}
                     {multiSystemAnalysis.western && (
-                      <div className="border border-accent/30 p-6 bg-accent/5">
-                        <div className="mb-4">
-                          <h4 className="text-base font-serif font-bold text-accent">天体星座分析</h4>
-                        </div>
-                        <div className="ai-analysis-content">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              h1: ({children}) => <h1 className="text-xl font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b-2 border-accent">{children}</h1>,
-                              h2: ({children}) => <h2 className="text-lg font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b border-ink/20">{children}</h2>,
-                              h3: ({children}) => <h3 className="text-base font-serif font-bold text-ink mb-2 mt-4">{children}</h3>,
-                              h4: ({children}) => <h4 className="text-sm font-serif font-semibold text-accent mb-2 mt-3">{children}</h4>,
-                              p: ({children}) => <p className="text-sm font-serif text-ink/80 leading-relaxed mb-3">{children}</p>,
-                              ul: ({children}) => <ul className="list-disc list-inside space-y-1 mb-3 ml-2">{children}</ul>,
-                              ol: ({children}) => <ol className="list-decimal list-inside space-y-1 mb-3 ml-2">{children}</ol>,
-                              li: ({children}) => <li className="text-sm font-serif text-ink/80 leading-relaxed">{children}</li>,
-                              strong: ({children}) => <strong className="font-bold text-ink">{children}</strong>,
-                              blockquote: ({children}) => <blockquote className="border-l-4 border-accent bg-accent/5 pl-4 py-2 my-3 italic text-ink/70">{children}</blockquote>,
-                              hr: () => <hr className="my-6 border-ink/10" />,
-                            }}
-                          >{multiSystemAnalysis.western}</ReactMarkdown>
-                        </div>
-                      </div>
+                      <AnalysisReportSection title="天体星座分析" content={multiSystemAnalysis.western} />
                     )}
-                    
-                    {/* 紫微斗数分析 */}
                     {multiSystemAnalysis.ziwei && (
-                      <div className="border border-accent/30 p-6 bg-accent/5">
-                        <div className="mb-4">
-                          <h4 className="text-base font-serif font-bold text-accent">紫微斗数分析</h4>
-                        </div>
-                        <div className="ai-analysis-content">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              h1: ({children}) => <h1 className="text-xl font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b-2 border-accent">{children}</h1>,
-                              h2: ({children}) => <h2 className="text-lg font-serif font-bold text-ink mb-3 mt-6 pb-2 border-b border-ink/20">{children}</h2>,
-                              h3: ({children}) => <h3 className="text-base font-serif font-bold text-ink mb-2 mt-4">{children}</h3>,
-                              h4: ({children}) => <h4 className="text-sm font-serif font-semibold text-accent mb-2 mt-3">{children}</h4>,
-                              p: ({children}) => <p className="text-sm font-serif text-ink/80 leading-relaxed mb-3">{children}</p>,
-                              ul: ({children}) => <ul className="list-disc list-inside space-y-1 mb-3 ml-2">{children}</ul>,
-                              ol: ({children}) => <ol className="list-decimal list-inside space-y-1 mb-3 ml-2">{children}</ol>,
-                              li: ({children}) => <li className="text-sm font-serif text-ink/80 leading-relaxed">{children}</li>,
-                              strong: ({children}) => <strong className="font-bold text-ink">{children}</strong>,
-                              blockquote: ({children}) => <blockquote className="border-l-4 border-accent bg-accent/5 pl-4 py-2 my-3 italic text-ink/70">{children}</blockquote>,
-                              hr: () => <hr className="my-6 border-ink/10" />,
-                            }}
-                          >{multiSystemAnalysis.ziwei}</ReactMarkdown>
-                        </div>
-                      </div>
+                      <AnalysisReportSection title="紫微斗数分析" content={multiSystemAnalysis.ziwei} />
                     )}
                   </div>
                 )}
