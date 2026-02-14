@@ -10,6 +10,7 @@ import LifeKLineChart from './LifeKLineChart';
 import { UserInfo } from './Auth';
 import type { User } from '@supabase/supabase-js';
 import { trackEvent, trackExposure } from '../lib/Tracking';
+import { useToast } from './Toast';
 
 interface DeepAnalysisPageProps {
   historyList: AnalysisHistoryItem[];
@@ -125,14 +126,8 @@ export default function DeepAnalysisPage({
   // 分享模态框
   const [shareModalIndex, setShareModalIndex] = useState<number | null>(null);
   
-  // Toast提示
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  
-  // 显示toast
-  const showToast = useCallback((message: string) => {
-    setToastMessage(message);
-    setTimeout(() => setToastMessage(null), 2000);
-  }, []);
+  // Toast提示（共享组件）
+  const { showToast, ToastPortal } = useToast();
   
   // 选中文本追问
   const [selectedText, setSelectedText] = useState<string>('');
@@ -282,7 +277,7 @@ export default function DeepAnalysisPage({
     // 找到对应消息的 DOM 元素并截图
     const messageElement = document.querySelector(`[data-message-index="${shareModalIndex}"]`);
     if (!messageElement) {
-      alert('无法找到消息内容');
+      showToast('无法找到消息内容', 'error');
       return;
     }
 
@@ -371,7 +366,7 @@ export default function DeepAnalysisPage({
       }, 'image/png');
     } catch (error) {
       console.error('生成截图失败:', error);
-      alert('生成截图失败');
+      showToast('生成截图失败', 'error');
     } finally {
       document.body.removeChild(wrapper);
       setShareModalIndex(null);
@@ -980,7 +975,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                             }
                             await onHistoryListRefresh?.();
                           } else {
-                            alert('删除失败，请重试');
+                            showToast('删除失败，请重试', 'error');
                           }
                         }}
                         className="ml-auto text-ink/30 hover:text-ink/60 text-xs leading-none"
@@ -1383,12 +1378,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
       )}
 
       {/* Toast 提示 */}
-      {toastMessage && createPortal(
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[200] bg-ink text-paper px-4 py-2 text-sm font-serif shadow-lg animate-fade-in">
-          {toastMessage}
-        </div>,
-        document.body
-      )}
+      <ToastPortal />
     </div>
   );
 }

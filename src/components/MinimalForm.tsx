@@ -2,12 +2,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import { lookupCity, getCityTimezone } from '../lib/CityLookup';
 import { FALLBACK_DATA, fetchCountries, fetchRegions, fetchCities, getCityDetails, getFallbackRegions, getFallbackCities, searchCities, getCityCoordinates, getCityCoordinatesFromFallback, GeoCity, GeoCountry, GeoRegion, COUNTRY_CODES } from '../lib/GeoService';
 import { trackEvent } from '../lib/Tracking';
+import { useToast } from './Toast';
 
 interface MinimalFormProps {
     onSubmit: (data: { date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string }) => void;
 }
 
 const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
+    const { showToast, ToastPortal } = useToast();
     const [year, setYear] = useState('');
     const [month, setMonth] = useState('');
     const [day, setDay] = useState('');
@@ -343,7 +345,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
         if (!year || !month || !day || !hour || !minute) return;
 
         if (!gender) {
-            alert('请选择性别');
+            showToast('请选择性别', 'error');
             genderRef.current?.focus();
             return;
         }
@@ -355,7 +357,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
         const min = Number(minute);
 
         if (!isValidDate(y, m, d, h, min)) {
-            alert('生日时间无效，请检查年月日时分范围');
+            showToast('生日时间无效，请检查年月日时分范围', 'error');
             return;
         }
 
@@ -386,6 +388,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
     const inputBaseClass = "bg-transparent border-b-2 border-ink/20 py-2 px-0 focus:outline-none focus:border-accent transition-all font-mono text-lg rounded-none text-center hover:border-ink/30";
 
     return (
+    <>
         <form onSubmit={handleSubmit} className="space-y-12 py-8 px-6">
             <div className="space-y-8">
                 <div className="group">
@@ -645,6 +648,8 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                 </button>
             </div>
         </form>
+        <ToastPortal />
+    </>
     );
 };
 

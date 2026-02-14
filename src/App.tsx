@@ -20,6 +20,7 @@ import { AuthModal, UserInfo, useAuth } from './components/Auth';
 import { getQuota, isAbortError, logUserInput } from './lib/ApiService';
 import { callAIService } from './lib/AIService';
 import { trackEvent, trackPageView } from './lib/Tracking';
+import { useToast } from './components/Toast';
 
 // --- Components ---
 
@@ -165,6 +166,7 @@ const MutagenBadge = ({ mutagen }: { mutagen: string }) => (
 );
 
 function App() {
+  const { showToast, ToastPortal } = useToast();
   const [step, setStep] = useState<'input' | 'charts' | 'deepAnalysis'>('input');
   const [chartData, setChartData] = useState<BaseChartData | null>(null);
   const [userData, setUserData] = useState<{ date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string } | null>(null);
@@ -300,6 +302,7 @@ function App() {
         .catch(err => {
           if (!isAbortError(err)) {
             console.error('获取quota失败:', err);
+            showToast('无法获取剩余次数', 'error');
           }
         });
     }
@@ -449,6 +452,7 @@ function App() {
       localStorage.setItem('lifeline_deep_chat_messages', JSON.stringify(deepChatMessages));
     } catch (error) {
       console.error('保存对话历史失败:', error);
+      showToast('对话历史保存失败', 'error');
     }
   }, [deepChatMessages]);
 
@@ -486,6 +490,7 @@ function App() {
       localStorage.setItem(key, JSON.stringify(profiles));
     } catch (error) {
       console.error('保存最近档案失败:', error);
+      showToast('档案保存失败', 'error');
     }
   };
 
@@ -555,7 +560,7 @@ function App() {
       setSelectedCharts([]);
     } catch (error) {
       console.error('打开最近档案失败:', error);
-      alert('无法打开该档案');
+      showToast('无法打开该档案', 'error');
     }
   };
 
@@ -618,7 +623,9 @@ function App() {
 五行分布：金${bazi.wuxingCount['金'] || 0} 木${bazi.wuxingCount['木'] || 0} 水${bazi.wuxingCount['水'] || 0} 火${bazi.wuxingCount['火'] || 0} 土${bazi.wuxingCount['土'] || 0}
 纳音：年柱${bazi.naYin.year}、月柱${bazi.naYin.month}、日柱${bazi.naYin.day}、时柱${bazi.naYin.hour}
 大运：${bazi.daYun.map(dy => `${dy.ganZhi}(${dy.startAge}岁)`).join('、')}`;
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(text)
+      .then(() => showToast('八字信息已复制'))
+      .catch(() => showToast('复制失败', 'error'));
   };
 
   const copyWesternInfo = () => {
@@ -629,7 +636,9 @@ function App() {
 月亮星座：${western.moonSign} (${western.moonAngle}°, 元素: ${western.moonElement})
 行星位置：
 ${western.planets.map(p => `  ${p.name}：${p.sign} (${p.angle}°)`).join('\n')}`;
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(text)
+      .then(() => showToast('天体信息已复制'))
+      .catch(() => showToast('复制失败', 'error'));
   };
 
   const copyZiweiInfo = () => {
@@ -639,7 +648,9 @@ ${western.planets.map(p => `  ${p.name}：${p.sign} (${p.angle}°)`).join('\n')}
 命宫：${ziwei.mingGong}
 十二宫位：
 ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：${p.stars.map(s => s.name + (s.mutagen ? `[${s.mutagen}]` : '')).join('、')}`).join('\n') || ''}`;
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(text)
+      .then(() => showToast('紫微信息已复制'))
+      .catch(() => showToast('复制失败', 'error'));
   };
 
   // 复制卡片截图到剪贴板的函数
@@ -662,13 +673,16 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                 'image/png': blob
               })
             ]);
+            showToast('图片已复制到剪贴板');
           } catch (err) {
             console.error('复制图片失败:', err);
+            showToast('复制图片失败', 'error');
           }
         }
       });
     } catch (error) {
       console.error('截图失败:', error);
+      showToast('截图失败', 'error');
     }
   };
 
@@ -696,7 +710,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
     // 检查剩余次数（每个体系消耗1次）
     const systemsToAnalyze = selectedSystems.length || 1;
     if (remainingCalls < systemsToAnalyze) {
-      alert(`需要${systemsToAnalyze}次调用次数，但只剩${remainingCalls}次。请关注我的小红书/公众号私信获取更多次数`);
+      showToast(`需要${systemsToAnalyze}次调用，但仅剩${remainingCalls}次`, 'error');
       return;
     }
     
@@ -856,6 +870,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
           setRemainingCalls(quota.remainingCalls);
         } catch (quotaError) {
           console.error('刷新额度失败:', quotaError);
+          showToast('刷新额度失败', 'error');
         }
       }
       
@@ -1018,7 +1033,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                           setHistoryList(history);
                           setViewingHistoryItem(null);
                         } else {
-                          alert('删除失败，请重试');
+                          showToast('删除失败，请重试', 'error');
                         }
                       }
                     }}
@@ -1554,6 +1569,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
       <footer className="mt-20 text-center text-[10px] font-mono text-ink/20">
         <p>© {new Date().getFullYear()} LIFELINE. 数据驱动命运.</p>
       </footer>
+      <ToastPortal />
     </div>
   );
 }
