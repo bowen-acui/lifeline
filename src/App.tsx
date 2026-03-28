@@ -177,7 +177,7 @@ function App() {
   const [analyzingHint, setAnalyzingHint] = useState('');
   
   // 认证状态
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading, logout, authError } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [remainingCalls, setRemainingCalls] = useState(19);
   const [showHistory, setShowHistory] = useState(false);
@@ -953,6 +953,14 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
             
             {authLoading ? (
               <div className="text-xs text-ink/40">加载中...</div>
+            ) : authError ? (
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="px-4 py-2 text-xs font-serif text-accent border border-accent/30 hover:border-accent transition-all"
+                title={authError}
+              >
+                登录异常
+              </button>
             ) : user ? (
               <UserInfo
                 user={user}

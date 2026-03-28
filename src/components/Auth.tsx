@@ -3,6 +3,14 @@ import { getUsageLogs, type UsageLogItem } from '../lib/ApiService';
 import { supabase, signOut, onAuthStateChange } from '../lib/AuthService';
 import type { User } from '@supabase/supabase-js';
 
+function getAuthErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  if (message === 'Failed to fetch' || /fetch/i.test(message)) {
+    return '连接认证服务失败，请检查网络或 Supabase 配置';
+  }
+  return message || '登录失败，请稍后重试';
+}
+
 interface AuthModalProps {
   onClose: () => void;
   onSuccess?: () => void;
@@ -32,7 +40,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
       
     } catch (err: any) {
       console.error('Login error:', err);
-      setError(err.message || '登录失败，请稍后重试');
+      setError(getAuthErrorMessage(err));
       setLoadingProvider(null);
     }
   };
@@ -59,7 +67,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
       setEmailSent(true);
     } catch (err: any) {
       console.error('Email login error:', err);
-      setError(err.message || '邮件发送失败，请稍后重试');
+      setError(getAuthErrorMessage(err));
     } finally {
       setIsEmailLoading(false);
     }
@@ -505,17 +513,28 @@ export function UserInfo({ user, remainingCalls, onLogout, recentProfiles = [], 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     // 使用 getSession 从 localStorage 读取，更快更可靠
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        setUser(session?.user ?? null);
+        setAuthError(null);
+      })
+      .catch((error) => {
+        console.error('Failed to initialize auth session:', error);
+        setAuthError(getAuthErrorMessage(error));
+        setUser(null);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
 
     // 监听认证状态变化
     const { data: { subscription } } = onAuthStateChange((user) => {
       setUser(user);
+      setAuthError(null);
     });
 
     return () => subscription.unsubscribe();
@@ -526,5 +545,5 @@ export function useAuth() {
     setUser(null);
   };
 
-  return { user, loading, logout };
+  return { user, loading, logout, authError };
 }
