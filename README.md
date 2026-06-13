@@ -27,4 +27,5 @@ A high-end, minimalist astrology application that generates Bazi, Ziwei Doushu, 
 ## Deployment
 
 See `DEPLOYMENT_PLAN.md` for a complete guide on taking this project to production.
+
 感谢 @幽素 老师的开源。
