@@ -1,4 +1,25 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+const ACCESS_PASSWORD_KEY = 'lifeline_access_password';
+
+export function getStoredAccessPassword(): string {
+  try {
+    return localStorage.getItem(ACCESS_PASSWORD_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function setStoredAccessPassword(pw: string): void {
+  try {
+    localStorage.setItem(ACCESS_PASSWORD_KEY, pw);
+  } catch {}
+}
+
+export function clearStoredAccessPassword(): void {
+  try {
+    localStorage.removeItem(ACCESS_PASSWORD_KEY);
+  } catch {}
+}
 
 export interface QuotaResponse {
   remainingCalls: number;
@@ -43,17 +64,23 @@ export function isAbortError(error: unknown): boolean {
 
 
 async function fetchWithAuth(url: string, options: RequestInit = {}) {
-  const { data: { session } } = await (await import('./AuthService')).supabase.auth.getSession();
-  
-  if (!session) {
-    throw new Error('请先登录');
-  }
+  const { supabase, NO_AUTH } = await import('./AuthService');
 
-  const headers = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${session.access_token}`,
-    ...options.headers,
+    ...(options.headers as Record<string, string>),
   };
+
+  const accessPw = getStoredAccessPassword();
+  if (accessPw) headers['x-access-password'] = accessPw;
+
+  if (!NO_AUTH) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      throw new Error('请先登录');
+    }
+    headers['Authorization'] = `Bearer ${session.access_token}`;
+  }
 
   const response = await fetch(`${API_BASE_URL}${url}`, {
     ...options,

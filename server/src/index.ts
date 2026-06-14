@@ -2,25 +2,46 @@ import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD || '';
+
+// 本地免登录模式：缺少 Supabase 配置（或显式 NO_AUTH=true）时启用，
+// 只需 DEEPSEEK_API_KEY 即可在本地直连 DeepSeek 跑通生成报告，跳过登录与配额。
+const NO_AUTH =
+  process.env.NO_AUTH === 'true' ||
+  !process.env.SUPABASE_URL ||
+  !process.env.SUPABASE_SERVICE_KEY;
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const DAILY_QUOTA = Number(process.env.DAILY_QUOTA || 19);
 const QUOTA_TIMEZONE = process.env.QUOTA_TIMEZONE || 'Asia/Shanghai';
 
-// Supabase客户端（使用service role key可以绕过RLS）
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
+// Supabase客户端（使用service role key可以绕过RLS）；NO_AUTH 模式下不创建
+const supabase: any = NO_AUTH
+  ? null
+  : createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_KEY!
+    );
 
+if (NO_AUTH) {
+  console.log('⚠️  NO_AUTH 模式已启用：跳过登录与每日配额，仅供本地测试');
+}
+
+// 单服务部署时前后端同源，FRONTEND_URL=* 即可；设具体值则严格匹配
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true
 }));
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '10mb' }));
 
 // ==================== 速率限制 ====================
@@ -50,6 +71,19 @@ const generalRateLimiter = rateLimit({
 
 // 对所有 /api/ 路由应用通用限制
 app.use('/api/', generalRateLimiter);
+
+// ==================== 访问密码门 ====================
+// 设置 ACCESS_PASSWORD 环境变量后，所有 /api/ 请求需在 x-access-password 头携带匹配密码
+if (ACCESS_PASSWORD) {
+  console.log('🔒 访问密码门已启用');
+  app.use('/api/', (req, res, next) => {
+    const provided = req.headers['x-access-password'];
+    if (provided !== ACCESS_PASSWORD) {
+      return res.status(401).json({ error: '访问密码错误', code: 'BAD_ACCESS_PASSWORD' });
+    }
+    next();
+  });
+}
 
 function getQuotaDateString() {
   try {
@@ -166,8 +200,13 @@ async function refundRemainingCalls(userId: string, addCount: number, retries = 
 
 // ==================== 认证中间件 ====================
 async function authenticateUser(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (NO_AUTH) {
+    (req as any).user = { id: 'local-dev', email: 'local@dev.local' };
+    return next();
+  }
+
   const authHeader = req.headers.authorization;
-  
+
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: '未登录' });
   }
@@ -188,6 +227,11 @@ async function authenticateUser(req: express.Request, res: express.Response, nex
 
 // 可选认证（埋点允许匿名）
 async function attachUserIfPresent(req: express.Request, _res: express.Response, next: express.NextFunction) {
+  if (NO_AUTH) {
+    (req as any).user = null;
+    return next();
+  }
+
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     (req as any).user = null;
@@ -207,6 +251,9 @@ app.get('/health', (req, res) => {
 
 // ==================== 埋点事件 ====================
 app.post('/api/events', attachUserIfPresent, async (req, res) => {
+  if (NO_AUTH) {
+    return res.json({ success: true });
+  }
   try {
     const user = (req as any).user;
     const {
@@ -266,6 +313,9 @@ app.post('/api/events', attachUserIfPresent, async (req, res) => {
 
 // ==================== 获取用户quota ====================
 app.get('/api/quota', authenticateUser, async (req, res) => {
+  if (NO_AUTH) {
+    return res.json({ remainingCalls: 999, userId: 'local-dev' });
+  }
   try {
     const userId = (req as any).user.id;
     const userEmail = (req as any).user.email;
@@ -284,6 +334,45 @@ app.get('/api/quota', authenticateUser, async (req, res) => {
 
 // ==================== AI分析接口 ====================
 app.post('/api/analyze', analyzeRateLimiter, authenticateUser, async (req, res) => {
+  // 本地免登录模式：直连 DeepSeek，跳过配额/扣费/日志
+  if (NO_AUTH) {
+    try {
+      const { messages } = req.body;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 180000);
+      const response = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages,
+          temperature: 0.7,
+          stream: false
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        return res.status(502).json({ error: `DeepSeek API错误: ${response.status} ${errText}` });
+      }
+      const result = await response.json();
+      const aiMessage = result.choices?.[0]?.message?.content ?? '';
+      return res.json({
+        message: aiMessage,
+        remainingCalls: 999,
+        duplicate: false,
+        savedToHistory: false
+      });
+    } catch (error: any) {
+      console.error('AI分析失败(NO_AUTH):', error);
+      return res.status(500).json({ error: error?.message || 'unknown' });
+    }
+  }
+
   const startAt = Date.now();
   const requestIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
   const userAgent = req.headers['user-agent'] || '';
@@ -532,6 +621,9 @@ app.post('/api/analyze', analyzeRateLimiter, authenticateUser, async (req, res) 
 
 // ==================== 调用记录（扣分明细） ====================
 app.get('/api/usage', authenticateUser, async (req, res) => {
+  if (NO_AUTH) {
+    return res.json({ logs: [] });
+  }
   try {
     const userId = (req as any).user.id;
     const limit = Math.min(Number(req.query.limit) || 50, 100);
@@ -553,6 +645,9 @@ app.get('/api/usage', authenticateUser, async (req, res) => {
 
 // ==================== 记录用户输入 ====================
 app.post('/api/log-input', authenticateUser, async (req, res) => {
+  if (NO_AUTH) {
+    return res.json({ success: true });
+  }
   try {
     const userId = (req as any).user.id;
     const { inputData } = req.body;
@@ -571,6 +666,9 @@ app.post('/api/log-input', authenticateUser, async (req, res) => {
 
 // ==================== 用户反馈 ====================
 app.post('/api/feedback', authenticateUser, async (req, res) => {
+  if (NO_AUTH) {
+    return res.json({ success: true });
+  }
   try {
     const userId = (req as any).user.id;
     const { feedbackType, targetId, content } = req.body;
@@ -631,6 +729,16 @@ app.post('/api/admin/add-quota', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+// ==================== 生产模式：提供前端静态资源 ====================
+// 在 Railway/Docker 部署时，将构建好的前端 dist 与后端打包到同一服务
+if (process.env.NODE_ENV === 'production') {
+  const frontendDist = path.resolve(__dirname, '../../dist');
+  app.use(express.static(frontendDist));
+  app.get(/^\/(?!api\/|health).*/, (_req, res) => {
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
+}
+
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });

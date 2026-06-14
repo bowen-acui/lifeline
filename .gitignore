@@ -4,4 +4,4 @@ dist
 .env
 .DS_Store
 .env*.local
-server/_admin_token.txt
+server/_admin_token.txt.claude/

@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+dist
+server/dist
+.git
+.gitignore
+.env
+.env.local
+server/.env
+*.log
+.DS_Store
+.claude
+.vscode
+.idea

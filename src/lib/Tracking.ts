@@ -144,6 +144,11 @@ export async function trackEvent(params: TrackEventParams): Promise<void> {
       headers.Authorization = `Bearer ${token}`;
     }
 
+    try {
+      const pw = localStorage.getItem('lifeline_access_password');
+      if (pw) headers['x-access-password'] = pw;
+    } catch {}
+
     await fetch(`${API_BASE_URL}/api/events`, {
       method: 'POST',
       headers,

@@ -10,12 +10,14 @@ import { KeyYear } from './components/DualLineChart';
 import { prepareAIAnalysisContext, generateYearScores, selectKeyYears } from './lib/ScoreGenerator';
 import { getCoordinates } from './lib/CityLookup';
 import { buildAnalysisPrompt } from './lib/AIPrompts';
-import { 
-  getAnalysisHistory, 
+import {
+  getAnalysisHistory,
   deleteAnalysis,
+  saveAnalysis,
   formatTimestamp,
-  type AnalysisHistoryItem 
+  type AnalysisHistoryItem
 } from './lib/CloudHistoryService';
+import { NO_AUTH } from './lib/AuthService';
 import { AuthModal, UserInfo, useAuth } from './components/Auth';
 import { getQuota, isAbortError, logUserInput } from './lib/ApiService';
 import { callAIService } from './lib/AIService';
@@ -835,10 +837,26 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
       const newMultiAnalysis: { bazi?: string; western?: string; ziwei?: string } = {};
       let successCount = 0;
       
-      for (const { system, result: analysisResult } of analysisResults) {
+      for (const { system, reportTitle, result: analysisResult } of analysisResults) {
         if (analysisResult.success && analysisResult.analysis) {
           newMultiAnalysis[system] = analysisResult.analysis;
           successCount++;
+          if (NO_AUTH) {
+            await saveAnalysis({
+              title: reportTitle,
+              userData: {
+                name: userData.name,
+                gender: userData.gender,
+                date: userData.date.toISOString().split('T')[0],
+                place: userData.place,
+              },
+              selectedSystems: [system],
+              analysisType: 'overall',
+              model: 'deepseek',
+              analysis: analysisResult.analysis,
+              keyYears: generatedKeyYears,
+            });
+          }
         }
       }
 

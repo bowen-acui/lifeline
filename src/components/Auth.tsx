@@ -1,7 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { getUsageLogs, type UsageLogItem } from '../lib/ApiService';
-import { supabase, signOut, onAuthStateChange } from '../lib/AuthService';
+import { supabase, signOut, onAuthStateChange, NO_AUTH } from '../lib/AuthService';
 import type { User } from '@supabase/supabase-js';
+
+// 本地免登录模式下使用的假用户，让生成报告等流程无需真实登录即可走通
+const LOCAL_USER = {
+  id: 'local-dev',
+  email: 'local@dev.local',
+  app_metadata: { provider: 'local' },
+  user_metadata: {},
+  aud: 'local',
+  created_at: new Date().toISOString(),
+} as unknown as User;
 
 function getAuthErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || '');
@@ -511,18 +521,23 @@ export function UserInfo({ user, remainingCalls, onLogout, recentProfiles = [], 
 }
 
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(NO_AUTH ? LOCAL_USER : null);
+  const [loading, setLoading] = useState(!NO_AUTH);
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (NO_AUTH) {
+      setUser(LOCAL_USER);
+      setLoading(false);
+      return;
+    }
     // 使用 getSession 从 localStorage 读取，更快更可靠
     supabase.auth.getSession()
-      .then(({ data: { session } }) => {
+      .then(({ data: { session } }: { data: { session: any } }) => {
         setUser(session?.user ?? null);
         setAuthError(null);
       })
-      .catch((error) => {
+      .catch((error: any) => {
         console.error('Failed to initialize auth session:', error);
         setAuthError(getAuthErrorMessage(error));
         setUser(null);

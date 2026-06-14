@@ -3,7 +3,15 @@
  * 使用 Supabase 存储，绑定用户账号
  */
 
-import { supabase } from './AuthService';
+import { supabase, NO_AUTH } from './AuthService';
+
+const LS_KEY = 'lifeline_local_history_v1';
+const readLS = (): AnalysisHistoryItem[] => {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || '[]'); } catch { return []; }
+};
+const writeLS = (items: AnalysisHistoryItem[]) => {
+  localStorage.setItem(LS_KEY, JSON.stringify(items.slice(0, 50)));
+};
 
 export interface AnalysisHistoryItem {
   id: string;
@@ -42,6 +50,7 @@ const MAX_HISTORY_ITEMS = 50;
  * 获取当前用户的所有历史记录
  */
 export async function getAnalysisHistory(): Promise<AnalysisHistoryItem[]> {
+  if (NO_AUTH) return readLS();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
@@ -59,7 +68,7 @@ export async function getAnalysisHistory(): Promise<AnalysisHistoryItem[]> {
 
   // 转换数据格式
   return (data || [])
-    .filter(row => {
+    .filter((row: any) => {
       const hasUserData = Boolean(row.input_data?.userData);
       const hasAnalysis = Boolean(row.output_data?.analysis);
       const hasContentOnly = Boolean(row.output_data?.content && !row.output_data?.analysis);
@@ -67,7 +76,7 @@ export async function getAnalysisHistory(): Promise<AnalysisHistoryItem[]> {
       if (!hasUserData && hasContentOnly) return false;
       return hasUserData || hasAnalysis || hasContentOnly;
     })
-    .map(row => {
+    .map((row: any) => {
       const userData = row.input_data?.userData || {};
       const titleFromMeta = row.input_data?.reportTitle;
       return {
@@ -90,6 +99,7 @@ export async function getAnalysisHistory(): Promise<AnalysisHistoryItem[]> {
  * 获取当前用户的报告总数
  */
 export async function getAnalysisHistoryCount(): Promise<number> {
+  if (NO_AUTH) return readLS().length;
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return 0;
 
@@ -112,6 +122,16 @@ export async function getAnalysisHistoryCount(): Promise<number> {
 export async function saveAnalysis(
   item: Omit<AnalysisHistoryItem, 'id' | 'timestamp'>
 ): Promise<AnalysisHistoryItem | null> {
+  if (NO_AUTH) {
+    const saved: AnalysisHistoryItem = {
+      id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: Date.now(),
+      ...item,
+    };
+    const list = readLS();
+    writeLS([saved, ...list]);
+    return saved;
+  }
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     console.error('Cannot save analysis: user not logged in');
@@ -156,6 +176,10 @@ export async function saveAnalysis(
  * 删除指定记录
  */
 export async function deleteAnalysis(id: string): Promise<boolean> {
+  if (NO_AUTH) {
+    writeLS(readLS().filter(x => x.id !== id));
+    return true;
+  }
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     console.error('deleteAnalysis: user not logged in');
@@ -215,6 +239,7 @@ export async function deleteAnalysis(id: string): Promise<boolean> {
  * 清空当前用户的所有历史记录
  */
 export async function clearAllHistory(): Promise<boolean> {
+  if (NO_AUTH) { writeLS([]); return true; }
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return false;
 
@@ -235,6 +260,7 @@ export async function clearAllHistory(): Promise<boolean> {
  * 获取单条记录
  */
 export async function getAnalysisById(id: string): Promise<AnalysisHistoryItem | null> {
+  if (NO_AUTH) return readLS().find(x => x.id === id) || null;
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
