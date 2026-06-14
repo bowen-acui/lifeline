@@ -919,10 +919,10 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
 
 
   return (
-    <div className={`min-h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto bg-paper text-ink selection:bg-accent selection:text-white ${step !== 'deepAnalysis' ? 'justify-center' : 'pt-8'}`}>
+    <div className={`min-h-screen flex flex-col items-center p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto bg-paper text-ink selection:bg-accent selection:text-white relative ${step !== 'deepAnalysis' ? 'justify-start sm:pt-20' : 'pt-8'}`}>
       {/* 顶部导航栏 - 返回按钮和用户信息 */}
       {step !== 'deepAnalysis' && (
-        <div className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center z-10">
+        <div className="w-full mb-4 sm:mb-0 sm:absolute sm:top-6 sm:left-6 sm:right-6 sm:w-auto flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center z-10">
           {/* 左侧：返回按钮 */}
           {step === 'charts' ? (
             <button
@@ -944,7 +944,7 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
           )}
           
           {/* 右侧：历史和登录 */}
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end sm:gap-3">
+          <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:gap-3">
             {/* 深度求解入口（仅登录用户） */}
             {user && (
               <div className="text-xs font-serif text-ink/50 flex items-center gap-0">
@@ -1151,8 +1151,8 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   } hover:-translate-y-0.5 hover:shadow-[0_16px_50px_rgba(0,0,0,0.08)]`}
                 >
                   <DataCard title="01. 四柱八字 (Bazi)">
-                  <div className="-mx-2 px-2 sm:mx-0 sm:px-0 overflow-x-auto">
-                  <div className="grid grid-cols-4 gap-2 text-center mb-4 min-w-[420px] sm:min-w-0">
+                  <div className="-mx-2 px-2 sm:mx-0 sm:px-0">
+                  <div className="grid grid-cols-4 gap-1 sm:gap-2 text-center mb-4 min-w-0">
                     <div className="text-xs text-ink/30 mb-1">年柱</div>
                     <div className="text-xs text-ink/30 mb-1">月柱</div>
                     <div className="text-xs text-ink/30 mb-1">日柱</div>
@@ -1222,11 +1222,11 @@ ${ziwei.palaces?.map(p => `  ${p.name} (${p.heavenlyStem}${p.earthlyBranch})：$
                   {/* Da Yun */}
                   <div className="border-t border-ink/5 pt-2">
                       <div className="text-[10px] text-ink/30 mb-2 uppercase tracking-widest text-center">大运 (Major Cycles)</div>
-                  <div className="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-8 gap-1.5">
+                  <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-x-1.5 gap-y-3">
                           {chartData.bazi.daYun.map((dy) => (
-                              <div key={dy.startAge} className="text-center">
-                                  <div className="text-sm font-bold">{dy.ganZhi}</div>
-                                  <div className="text-[9px] text-ink/40">{dy.startAge}岁</div>
+                              <div key={dy.startAge} className="text-center leading-tight">
+                                  <div className="text-sm font-bold h-5 flex items-center justify-center">{dy.ganZhi || '·'}</div>
+                                  <div className="text-[9px] text-ink/40 mt-0.5">{dy.startAge}岁</div>
                                   <div className="text-[9px] text-ink/30">{dy.startYear}</div>
                               </div>
                           ))}

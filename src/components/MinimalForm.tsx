@@ -3,6 +3,7 @@ import { lookupCity, getCityTimezone } from '../lib/CityLookup';
 import { FALLBACK_DATA, fetchCountries, fetchRegions, fetchCities, getCityDetails, getFallbackRegions, getFallbackCities, searchCities, getCityCoordinates, getCityCoordinatesFromFallback, GeoCity, GeoCountry, GeoRegion, COUNTRY_CODES } from '../lib/GeoService';
 import { trackEvent } from '../lib/Tracking';
 import { useToast } from './Toast';
+import { Lunar } from 'lunar-javascript';
 
 interface MinimalFormProps {
     onSubmit: (data: { date: Date; place: string; name: string; gender: '男' | '女'; orientation?: string }) => void;
@@ -15,7 +16,8 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
     const [day, setDay] = useState('');
     const [hour, setHour] = useState('');
     const [minute, setMinute] = useState('');
-    
+    const [calendarType, setCalendarType] = useState<'solar' | 'lunar'>('solar');
+
     const [birthPlace, setBirthPlace] = useState('');
     const [name, setName] = useState('');
     const [gender, setGender] = useState<'' | '男' | '女'>('');
@@ -350,11 +352,34 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
             return;
         }
 
-        const y = Number(year);
-        const m = Number(month);
-        const d = Number(day);
+        let y = Number(year);
+        let m = Number(month);
+        let d = Number(day);
         const h = Number(hour);
         const min = Number(minute);
+
+        // 基础范围校验（年/月/日/时/分），农历同样适用
+        if (
+            y < 1900 || y > new Date().getFullYear() ||
+            m < 1 || m > 12 || d < 1 || d > 30 ||
+            h < 0 || h > 23 || min < 0 || min > 59
+        ) {
+            showToast('生日时间无效，请检查年月日时分范围', 'error');
+            return;
+        }
+
+        // 农历 → 阳历：排盘引擎内部按阳历处理，这里先转换
+        if (calendarType === 'lunar') {
+            try {
+                const solar = Lunar.fromYmdHms(y, m, d, h, min, 0).getSolar();
+                y = solar.getYear();
+                m = solar.getMonth();
+                d = solar.getDay();
+            } catch {
+                showToast('农历日期无效，请检查（该月可能没有这一天）', 'error');
+                return;
+            }
+        }
 
         if (!isValidDate(y, m, d, h, min)) {
             showToast('生日时间无效，请检查年月日时分范围', 'error');
@@ -385,62 +410,77 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
         });
     };
 
-    const inputBaseClass = "bg-transparent border-b-2 border-ink/20 py-2 px-0 focus:outline-none focus:border-accent transition-all font-mono text-lg rounded-none text-center hover:border-ink/30";
+    const inputBaseClass = "bg-transparent border-b-2 border-ink/20 py-2 px-0 focus:outline-none focus:border-accent transition-all font-mono text-base sm:text-lg rounded-none text-center hover:border-ink/30";
 
     return (
     <>
         <form onSubmit={handleSubmit} className="space-y-12 py-8 px-6">
             <div className="space-y-8">
                 <div className="group">
-                    <label className="block text-xs font-serif text-ink/40 mb-3 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生时间 (Time of Origin)</label>
-                    <div className="flex flex-wrap gap-2 items-center">
+                    <div className="flex items-center justify-between mb-3">
+                        <label className="block text-xs font-serif text-ink/40 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生时间 (Time of Origin)</label>
+                        <div className="flex items-center font-mono text-xs">
+                            <button
+                                type="button"
+                                onClick={() => setCalendarType('solar')}
+                                className={`px-2 py-1 transition-all ${calendarType === 'solar' ? 'text-accent bg-accent/10' : 'text-ink/40 hover:text-ink/60'}`}
+                            >阳历</button>
+                            <span className="text-ink/20">/</span>
+                            <button
+                                type="button"
+                                onClick={() => setCalendarType('lunar')}
+                                className={`px-2 py-1 transition-all ${calendarType === 'lunar' ? 'text-accent bg-accent/10' : 'text-ink/40 hover:text-ink/60'}`}
+                            >农历</button>
+                        </div>
+                    </div>
+                    <div className="flex flex-nowrap items-baseline gap-1.5 sm:gap-2">
                         <input
                             ref={yearRef}
                             type="text"
                             value={year}
                             onChange={handleYearChange}
                             placeholder="YYYY"
-                            className={`${inputBaseClass} w-20`}
+                            className={`${inputBaseClass} w-16 sm:w-20`}
                             maxLength={4}
                         />
-                        <span className="text-ink/40">/</span>
+                        <span className="text-ink/30">/</span>
                         <input
                             ref={monthRef}
                             type="text"
                             value={month}
                             onChange={handleMonthChange}
                             placeholder="MM"
-                            className={`${inputBaseClass} w-12`}
+                            className={`${inputBaseClass} w-10 sm:w-12`}
                             maxLength={2}
                         />
-                        <span className="text-ink/40">/</span>
+                        <span className="text-ink/30">/</span>
                         <input
                             ref={dayRef}
                             type="text"
                             value={day}
                             onChange={handleDayChange}
                             placeholder="DD"
-                            className={`${inputBaseClass} w-12`}
+                            className={`${inputBaseClass} w-10 sm:w-12`}
                             maxLength={2}
                         />
-                        <span className="text-ink/40 ml-2">@</span>
+                        <span className="text-ink/30 px-1 sm:px-2">@</span>
                         <input
                             ref={hourRef}
                             type="text"
                             value={hour}
                             onChange={handleHourChange}
                             placeholder="HH"
-                            className={`${inputBaseClass} w-12`}
+                            className={`${inputBaseClass} w-10 sm:w-12`}
                             maxLength={2}
                         />
-                        <span className="text-ink/40">:</span>
+                        <span className="text-ink/30">:</span>
                         <input
                             ref={minuteRef}
                             type="text"
                             value={minute}
                             onChange={handleMinuteChange}
                             placeholder="mm"
-                            className={`${inputBaseClass} w-12`}
+                            className={`${inputBaseClass} w-10 sm:w-12`}
                             maxLength={2}
                         />
                     </div>
@@ -533,12 +573,12 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                         </div>
                     ) : (
                         // 下拉选择模式
-                        <div className="flex gap-4">
-                            <select 
+                        <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
+                            <select
                                 ref={countryRef}
-                                value={selectedCountryCode} 
+                                value={selectedCountryCode}
                                 onChange={handleCountryChange}
-                                className="minimal-input w-1/3"
+                                className="minimal-input w-full sm:w-1/3"
                                 disabled={isCountriesLoading}
                             >
                                 <option value="" disabled>{isCountriesLoading ? '国家加载中...' : '选择国家'}</option>
@@ -549,10 +589,10 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                                 ))}
                             </select>
 
-                            <select 
-                                value={selectedRegion} 
+                            <select
+                                value={selectedRegion}
                                 onChange={handleRegionChange}
-                                className="minimal-input w-1/3"
+                                className="minimal-input w-full sm:w-1/3"
                                 disabled={!selectedCountryCode || isRegionsLoading}
                             >
                                 <option value="" disabled>{isRegionsLoading ? '地区加载中...' : '选择省份/地区'}</option>
@@ -563,10 +603,10 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                                 ))}
                             </select>
 
-                            <select 
-                                value={birthPlace} 
+                            <select
+                                value={birthPlace}
                                 onChange={handleCityChange}
-                                className="minimal-input w-1/3"
+                                className="minimal-input w-full sm:w-1/3"
                                 disabled={!selectedRegion || isCitiesLoading}
                             >
                                 <option value="" disabled>{isCitiesLoading ? '城市加载中...' : '选择城市'}</option>
@@ -587,7 +627,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                 </div>
 
                 <div className="group">
-                    <div className="flex items-end gap-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
                         <div className="flex-1">
                             <label htmlFor="gender" className="block text-xs font-serif text-ink/40 mb-2 uppercase tracking-widest group-focus-within:text-accent transition-colors">出生性别 (Gender) *</label>
                             <select
@@ -636,12 +676,12 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                 </div>
             </div>
 
-            <div className="pt-8 flex justify-end">
+            <div className="pt-8 flex flex-col sm:flex-row sm:justify-end">
                 <button
                     type="submit"
                     disabled={!year || !month || !day || !hour || !minute || !gender}
                     ref={submitButtonRef}
-                    className="btn-primary group relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="btn-primary group relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
                 >
                     <span className="relative z-10">生成命盘矩阵</span>
                     <div className="absolute inset-0 bg-accent transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-300 ease-out -z-0"></div>

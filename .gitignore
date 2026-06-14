@@ -5,3 +5,6 @@ dist
 .DS_Store
 .env*.local
 server/_admin_token.txt.claude/
+
+# Local Claude Code tooling
+.claude/

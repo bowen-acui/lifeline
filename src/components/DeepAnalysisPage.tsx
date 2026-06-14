@@ -111,6 +111,7 @@ export default function DeepAnalysisPage({
   const exposureTrackedRef = useRef<Set<string>>(new Set());
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const [isResizing, setIsResizing] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const resizeStartXRef = useRef<number | null>(null);
   const resizeStartWidthRef = useRef<number | null>(null);
   
@@ -847,19 +848,31 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-paper selection:bg-accent selection:text-white">
       {/* 顶部导航 */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-ink/10">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 text-sm font-serif text-ink/60 hover:text-ink transition-colors"
-        >
-          <span>←</span>
-          <span>返回</span>
-        </button>
-        <div className="text-center">
-          <h2 className="text-2xl font-serif font-bold tracking-tighter">LIFELINE</h2>
-          <p className="text-[10px] font-mono text-ink/40 uppercase tracking-[0.3em] mt-1">深度求解</p>
+      <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-ink/10 gap-2">
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => setMobileSidebarOpen(true)}
+            className="sm:hidden w-9 h-9 -ml-1 flex flex-col items-center justify-center gap-1 text-ink/70 hover:text-ink"
+            aria-label="打开历史侧栏"
+          >
+            <span className="block w-5 h-px bg-current"></span>
+            <span className="block w-5 h-px bg-current"></span>
+            <span className="block w-5 h-px bg-current"></span>
+          </button>
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1 sm:gap-2 text-sm font-serif text-ink/60 hover:text-ink transition-colors"
+          >
+            <span>←</span>
+            <span>返回</span>
+          </button>
         </div>
-        <div className="min-w-[120px] flex justify-end">
+        <div className="text-center flex-1 min-w-0">
+          <h2 className="text-lg sm:text-2xl font-serif font-bold tracking-tighter">LIFELINE</h2>
+          <p className="text-[10px] font-mono text-ink/40 uppercase tracking-[0.3em] mt-0.5 sm:mt-1">深度求解</p>
+        </div>
+        <div className="sm:min-w-[120px] flex justify-end flex-shrink-0">
           {user ? (
             <UserInfo
               user={user}
@@ -881,23 +894,41 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
       </div>
 
       {/* 主体两栏布局 */}
-      <div className="flex gap-0 flex-1 overflow-hidden">
+      <div className="flex gap-0 flex-1 overflow-hidden relative">
+        {/* 移动端侧栏遮罩 */}
+        {mobileSidebarOpen && (
+          <div
+            className="sm:hidden fixed inset-0 z-30 bg-black/40"
+            onClick={() => setMobileSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
         {/* 左栏 - 历史列表 */}
         <div
-          className="border-r border-ink/10 bg-paper flex flex-col relative"
+          className={`border-r border-ink/10 bg-paper flex flex-col sm:relative fixed sm:static inset-y-0 left-0 z-40 transform transition-transform sm:transform-none ${
+            mobileSidebarOpen ? 'translate-x-0' : '-translate-x-[110%] sm:translate-x-0'
+          }`}
           style={{ width: `${sidebarWidth}px` }}
         >
           {/* 新建命理档案按钮 */}
-          <div className="h-16 px-3 border-b border-ink/10 flex items-center">
+          <div className="h-16 px-3 border-b border-ink/10 flex items-center gap-2">
             <button
               onClick={onNewProfile}
-              className="w-full h-9 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors"
+              className="flex-1 h-9 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors"
             >
               + 新建命理档案
             </button>
+            <button
+              type="button"
+              onClick={() => setMobileSidebarOpen(false)}
+              className="sm:hidden w-9 h-9 flex items-center justify-center border border-ink/20 text-ink/60 text-lg leading-none"
+              aria-label="关闭侧栏"
+            >
+              ×
+            </button>
           </div>
           <div
-            className={`absolute top-0 right-0 h-full w-1.5 ${
+            className={`hidden sm:block absolute top-0 right-0 h-full w-1.5 ${
               isResizing ? 'bg-ink/10' : 'bg-transparent hover:bg-ink/10'
             } cursor-col-resize transition-colors`}
             onMouseDown={(event) => {
@@ -997,9 +1028,9 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
         </div>
 
         {/* 右栏 - 对话框 */}
-        <div className="flex-1 bg-paper flex flex-col overflow-hidden">
+        <div className="flex-1 min-w-0 bg-paper flex flex-col overflow-hidden w-full">
           {/* Shortcut 按钮区 */}
-          <div className="h-16 px-6 border-b border-ink/10 flex items-center gap-3">
+          <div className="h-16 px-3 sm:px-6 border-b border-ink/10 flex items-center gap-2 sm:gap-3 overflow-x-auto whitespace-nowrap">
             <button
               ref={compareButtonRef}
               onClick={(e) => {
@@ -1013,7 +1044,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                 handleCompareAnalysis();
               }}
               disabled={isLoading}
-              className="h-9 px-4 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50"
+              className="h-9 px-3 sm:px-4 border border-ink/20 text-xs sm:text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50 flex-shrink-0"
             >
               对比分析
             </button>
@@ -1030,7 +1061,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                 handleSynastryAnalysis();
               }}
               disabled={isLoading}
-              className="h-9 px-4 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50"
+              className="h-9 px-3 sm:px-4 border border-ink/20 text-xs sm:text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50 flex-shrink-0"
             >
               合盘
             </button>
@@ -1047,7 +1078,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                 handleDrawKLine();
               }}
               disabled={isLoading}
-              className="h-9 px-4 border border-ink/20 text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50"
+              className="h-9 px-3 sm:px-4 border border-ink/20 text-xs sm:text-sm font-serif hover:bg-ink/5 transition-colors disabled:opacity-50 flex-shrink-0"
             >
               绘制K线图
             </button>
@@ -1069,7 +1100,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                     onChatMessagesChange([]);
                   }
                 }}
-                className="px-4 py-2 border border-red-300 text-sm font-serif text-red-500 hover:bg-red-50 transition-colors"
+                className="px-3 sm:px-4 py-2 border border-red-300 text-xs sm:text-sm font-serif text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
               >
                 清空对话
               </button>
@@ -1077,8 +1108,8 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
           </div>
 
           {/* 对话内容区 */}
-          <div 
-            className="flex-1 overflow-y-auto px-6 py-6 space-y-6"
+          <div
+            className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6 space-y-6"
             onMouseUp={handleTextSelection}
           >
             {chatMessages.length === 0 ? (
@@ -1216,8 +1247,8 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
           </div>
 
           {/* 输入区 */}
-          <div className="px-6 py-4 border-t border-ink/10">
-            <div className="flex gap-3">
+          <div className="px-3 sm:px-6 py-3 sm:py-4 border-t border-ink/10">
+            <div className="flex gap-2 sm:gap-3">
               <textarea
                 ref={inputRef}
                 value={chatInput}
@@ -1228,8 +1259,8 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                     sendMessage(chatInput);
                   }
                 }}
-                placeholder="输入问题，按 Enter 发送..."
-                className="flex-1 p-3 border border-ink/20 bg-transparent font-serif text-sm resize-none focus:outline-none focus:border-accent"
+                placeholder="输入问题..."
+                className="flex-1 min-w-0 p-2 sm:p-3 border border-ink/20 bg-transparent font-serif text-sm resize-none focus:outline-none focus:border-accent"
                 rows={2}
                 disabled={isLoading}
               />
@@ -1237,7 +1268,7 @@ ${titles.map((t, i) => `${i + 1}. ${t.title} (生成时间: ${t.timestamp})`).jo
                 type="button"
                 onClick={() => sendMessage(chatInput)}
                 disabled={isLoading || !chatInput.trim()}
-                className="px-6 bg-ink text-paper font-serif text-sm hover:bg-ink/80 transition-colors disabled:opacity-50"
+                className="px-4 sm:px-6 bg-ink text-paper font-serif text-sm hover:bg-ink/80 transition-colors disabled:opacity-50 flex-shrink-0"
               >
                 发送
               </button>

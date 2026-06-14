@@ -3,10 +3,18 @@ declare module 'lunar-javascript' {
         static fromDate(date: Date): Solar;
         static fromYmdHms(year: number, month: number, day: number, hour: number, minute: number, second: number): Solar;
         getLunar(): Lunar;
+        getYear(): number;
+        getMonth(): number;
+        getDay(): number;
+        getHour(): number;
+        getMinute(): number;
+        getSecond(): number;
     }
 
     export class Lunar {
         static fromDate(date: Date): Lunar;
+        static fromYmdHms(year: number, month: number, day: number, hour: number, minute: number, second: number): Lunar;
+        getSolar(): Solar;
         getEightChar(): EightChar;
         toString(): string;
     }
