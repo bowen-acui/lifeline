@@ -433,14 +433,14 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                             >农历</button>
                         </div>
                     </div>
-                    <div className="flex flex-nowrap items-baseline gap-1.5 sm:gap-2">
+                    <div className="flex flex-nowrap items-baseline gap-1 sm:gap-2">
                         <input
                             ref={yearRef}
                             type="text"
                             value={year}
                             onChange={handleYearChange}
                             placeholder="YYYY"
-                            className={`${inputBaseClass} w-16 sm:w-20`}
+                            className={`${inputBaseClass} w-12 sm:w-20 min-w-0`}
                             maxLength={4}
                         />
                         <span className="text-ink/30">/</span>
@@ -450,7 +450,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                             value={month}
                             onChange={handleMonthChange}
                             placeholder="MM"
-                            className={`${inputBaseClass} w-10 sm:w-12`}
+                            className={`${inputBaseClass} w-9 sm:w-12 min-w-0`}
                             maxLength={2}
                         />
                         <span className="text-ink/30">/</span>
@@ -460,17 +460,17 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                             value={day}
                             onChange={handleDayChange}
                             placeholder="DD"
-                            className={`${inputBaseClass} w-10 sm:w-12`}
+                            className={`${inputBaseClass} w-9 sm:w-12 min-w-0`}
                             maxLength={2}
                         />
-                        <span className="text-ink/30 px-1 sm:px-2">@</span>
+                        <span className="text-ink/30 px-0.5 sm:px-2">@</span>
                         <input
                             ref={hourRef}
                             type="text"
                             value={hour}
                             onChange={handleHourChange}
                             placeholder="HH"
-                            className={`${inputBaseClass} w-10 sm:w-12`}
+                            className={`${inputBaseClass} w-9 sm:w-12 min-w-0`}
                             maxLength={2}
                         />
                         <span className="text-ink/30">:</span>
@@ -480,7 +480,7 @@ const MinimalForm = ({ onSubmit }: MinimalFormProps) => {
                             value={minute}
                             onChange={handleMinuteChange}
                             placeholder="mm"
-                            className={`${inputBaseClass} w-10 sm:w-12`}
+                            className={`${inputBaseClass} w-9 sm:w-12 min-w-0`}
                             maxLength={2}
                         />
                     </div>
